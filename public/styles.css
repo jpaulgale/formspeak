@@ -47,7 +47,7 @@ html, body { height: 100%; }
   overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 /* <main> wrapper: take over the column-fill role formerly on #formScreen. */
-.appmain { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.appmain { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding-top: max(18px, env(safe-area-inset-top)); }
 
 /* ---------------------------------------------------------------------------
    NYC Digital Design System integration seam.
@@ -69,7 +69,12 @@ body {
 .app {
   width: 100%; max-width: 460px; min-height: 100dvh;
   display: flex; flex-direction: column;
-  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  /* No top padding on the scroll container itself: because overflow-x:hidden
+     makes .app the scroller, a top padding would offset the sticky pin point
+     and leave a strip of form content peeking above the mic. The top breathing
+     room lives inside .appmain instead, so it scrolls away and the sticky header
+     pins flush with the panel's top edge. */
+  padding: 0 18px calc(96px + env(safe-area-inset-bottom));
   gap: 14px;
   background: var(--white);
   border-left: 1px solid var(--line); border-right: 1px solid var(--line);
@@ -79,7 +84,11 @@ body {
 :focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
 
 /* ---------- top bar ---------- */
-.topbar { display: flex; align-items: center; justify-content: space-between; color: var(--ink); }
+/* Breathing room above the brand. Lives on the header (not the .app scroller —
+   see the note at .app: top padding there would offset the sticky pin point) and
+   carries the notch safe-area so "FormSpeak" never tucks under it. Scrolls away. */
+.topbar { display: flex; align-items: center; justify-content: space-between; color: var(--ink);
+  padding-top: max(20px, env(safe-area-inset-top)); }
 .brand { font-family: var(--font-display); font-weight: 600; letter-spacing: -.01em; font-size: 18px; display: flex; align-items: center; gap: 9px; }
 .brand .dot { width: 12px; height: 12px; border-radius: 0; background: var(--accent); }
 .conn { font-size: 12px; font-weight: 600; color: var(--gray-30); display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: .04em; }
@@ -99,6 +108,16 @@ body {
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   padding: 26px 22px 22px; position: relative; overflow: hidden;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+/* Only while we're actually listening (mic on, your turn — same moment the caret
+   blinks) does the card come forward. Elevation, not a blue ring: a ring around
+   the whole card reads as a focused text input ("click to type"), the wrong cue.
+   NYC builds hierarchy with neutral depth and reserves blue for real controls —
+   the listening affordance already lives on the mic. Recedes the instant the
+   model starts thinking/speaking or the mic is paused. */
+.card.listening {
+  box-shadow: 0 8px 24px -10px rgba(0,0,0,.22);
 }
 .qmeta { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 10px; }
 .qtext { font-family: var(--font-display); font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
@@ -113,6 +132,59 @@ body {
 @keyframes blink { 50% { opacity: 0; } }
 .card.anim { animation: slideIn .42s cubic-bezier(.2,.7,.2,1); }
 @keyframes slideIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* The mic + live transcript + question card sit at the top of the form in normal
+   flow and scroll away with the page. A fixed overlay mini-bar (.minibar, below)
+   takes over the pinned mic + status once they leave the viewport, so the lower
+   form fields get the screen. We deliberately do NOT make this sticky and collapse
+   it: collapsing an in-flow sticky element reclaims its height, reflowing the page
+   and clamping the scroll (the "jump to top" glitch). A fixed overlay never
+   reflows. Mobile only — desktop is a floating card that doesn't scroll. */
+.stickytop {
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--white);
+  margin: 0 -18px; padding: 6px 18px 12px;
+}
+
+/* Slim overlay bar — appears once the full mic/card scrolls out of view. Fixed,
+   so showing/hiding it overlays the page rather than reflowing it (no jump). The
+   mini mic delegates to the real one, so pause/resume stays reachable. */
+.minibar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  display: none; align-items: center; gap: 12px;
+  padding: max(8px, env(safe-area-inset-top)) 18px 8px;
+  background: var(--white); border-bottom: 1px solid var(--line);
+  box-shadow: 0 8px 16px -12px rgba(0,0,0,.35);
+  transform: translateY(-100%);
+  transition: transform .22s cubic-bezier(.2,.7,.2,1);
+}
+.minibar.show { transform: none; }
+.minibar-mic {
+  flex: none; width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--gray-80);
+  background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer;
+  transition: background .2s, transform .12s; touch-action: manipulation;
+}
+.minibar-mic:active { transform: scale(.94); }
+.minibar-mic svg { width: 18px; height: 18px; }
+.minibar-mic.listening { background: var(--red-40); border-color: var(--red-40); }
+/* text column: status (phase · field), the field hint, then the last exchange.
+   Font sizes match the app's readable scale (15/14px, not the cramped 12px); only
+   the short status line truncates — the hint and transcript wrap in full so nothing
+   is hidden. Empty lines collapse, so the bar is just mic + status at rest. */
+.minibar-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.minibar-status, .minibar-hint, .minibar-cap { min-width: 0; line-height: 1.35; }
+.minibar-status {
+  font-size: 15px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.minibar-status b { font-weight: 700; }
+.minibar-status .dock-dot { color: var(--gray-40); margin: 0 7px; }
+.minibar-hint { font-size: 14px; color: var(--muted); }
+.minibar-cap { font-size: 14px; color: var(--gray-40); font-style: italic; }
+.minibar-cap .cap-line { display: block; }
+.minibar-cap .cap-line b { font-style: normal; font-weight: 700; color: var(--gray-30); }
+.minibar-hint:empty, .minibar-cap:empty { display: none; }
+@media (max-width: 759px) { .minibar { display: flex; } }
 
 /* review screen card uses a list */
 .review-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
@@ -135,7 +207,9 @@ body {
 /* ---------- live editable form ---------- */
 /* Flat surface (border only) so the elevated hero card above it is the single
    source of elevation — avoids two drop shadows compounding at the seam. */
-.liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px; display: flex; flex-direction: column; gap: 8px; }
+/* Mobile: no outline — the fields sit directly on the white panel so the form
+   reads as one continuous surface. The desktop card border is restored below. */
+.liveform { background: transparent; border: 0; border-radius: 0; padding: 4px 0 6px; display: flex; flex-direction: column; gap: 8px; }
 .ff { display: flex; flex-direction: column; gap: 5px; border-radius: 4px; padding: 6px 8px; transition: background .5s; }
 .ff.flash { background: var(--flash); }
 .ff-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
@@ -323,8 +397,12 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   }
   /* a touch more presence for the headline on wide screens */
   .hero { font-size: 32px; }
+  /* desktop is a floating card, not a scrolling phone column — no sticky header */
+  .stickytop, .stickytop.is-stuck { position: static; margin: 0; padding: 0; background: none; box-shadow: none; }
+  .appmain { padding-top: 0; }  /* card padding handles top spacing on desktop */
   /* two-column editable form; address + submit + hint span the full width */
-  .liveform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
+  .liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
   .nyc-errorsummary,
   .liveform .ff[data-key="address"],
   .ff-feedback,

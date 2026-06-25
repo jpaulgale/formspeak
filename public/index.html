@@ -40,10 +40,29 @@
     <div class="brand"><span class="dot"></span> FormSpeak</div>
   </header>
 
+  <!-- Slim overlay bar (mobile): slides in once the big mic/card scrolls off, so
+       the mic + current-question status stay reachable without eating the screen. -->
+  <!-- No aria-hidden on the bar itself: it holds the focusable mini-mic. The text is
+       a visual echo of the #caption live region, so only the text is aria-hidden; the
+       bar is made non-focusable while off-screen via .inert (toggled in JS). -->
+  <div class="minibar" id="minibar" inert>
+    <button class="minibar-mic" id="miniMic" type="button" aria-label="Start microphone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+    </button>
+    <div class="minibar-text" aria-hidden="true">
+      <div class="minibar-status" id="miniStatus"></div>
+      <div class="minibar-hint" id="miniHint"></div>
+      <div class="minibar-cap" id="miniCap"></div><!-- live transcript; persists last exchange -->
+    </div>
+  </div>
+
   <main class="appmain">
   <!-- FORM — shown immediately; microphone sits at the top of the form -->
   <div id="formScreen" style="flex:1;display:flex;flex-direction:column;gap:14px;">
     <h1 class="hero">Just <span id="heroVerb">click</span> the mic and talk.<br><span class="hl">Ramble, pause, correct yourself, whatever.</span><br>We'll fill out your NYC benefits form.</h1>
+    <!-- mic + transcript + focused question: on mobile this block sticks to the
+         top of the viewport so it follows the user down toward the lower fields -->
+    <div class="stickytop" id="stickyTop">
     <div class="dock">
       <div class="mic-wrap"><div class="ring" id="ring"></div>
         <button class="mic idle-pulse" id="micBtn" type="button" aria-pressed="false" aria-label="Start microphone">
@@ -58,6 +77,7 @@
     <div class="caption" id="caption" role="log" aria-live="polite" aria-label="Conversation transcript"></div>
     <!-- hero focused card: the field currently 'up' in the process, big and centered -->
     <div class="card" id="qcard"></div>
+    </div>
     <form class="liveform" id="liveForm" autocomplete="off" novalidate></form>
     <p class="credit credit-foot">This demo was created during the <a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a> by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a></p>
   </div>
@@ -69,8 +89,8 @@
     <p>Your details were captured and confirmed by voice.</p>
     <div class="final-card" id="finalCard"></div>
     <div class="mic-sub" id="saveStatus"></div>
-    <p class="thanks">Thanks for trying FormSpeak</p>
-    <p class="credit">This demo was created during the <a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a> by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a></p>
+    <p class="thanks">Thanks for trying FormSpeak!</p>
+    <p class="credit">This demo was created during the<br><a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a><br>by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a></p>
     <a class="btn-primary nyc-button nyc-button--primary" id="emailBtn" href="mailto:jpaulgale@gmail.com?subject=FormSpeak">Email me</a>
     <button class="btn-ghost nyc-button nyc-button--secondary" id="restartBtn">Start over</button>
   </div>
@@ -104,7 +124,7 @@ const FIELDS = [
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
 ];
 
-const SYSTEM_INSTRUCTION = `You are "Ramble", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (full street address), date_of_birth, ssn (US Social Security number), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
+const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (full street address), date_of_birth, ssn (US Social Security number), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
 
 How to behave:
 - Greet the user in ONE short sentence, then ask for the first field.
@@ -692,7 +712,7 @@ function renderProgress() {
 // otherwise it reflects the real state (mic off, thinking, or assistant speaking).
 function emptyAnswerHTML() {
   if (!state.micOn) return '<div class="answer empty muted">' + TAP + ' the microphone to start</div>';
-  if (state.phase === "speaking") return '<div class="answer empty muted">Ramble is speaking…</div>';
+  if (state.phase === "speaking") return '<div class="answer empty muted">FormSpeak is speaking…</div>';
   if (state.phase === "thinking") return '<div class="answer empty muted">thinking…</div>';
   // genuinely listening for the user's answer
   return '<div class="answer empty"><span class="caret"></span>listening</div>';
@@ -702,6 +722,22 @@ function renderCard() {
   const card = $("qcard");
   if (!card) return; // question card removed — the live form is the primary view
   const ai = activeIndex();
+
+  // Light the card up only while genuinely listening (same condition as the
+  // blinking caret) — blue focus ring via .listening. Off when thinking/speaking/paused.
+  card.classList.toggle("listening", state.micOn && state.phase === "listening");
+
+  // Keep the overlay mini-bar in sync (phase · field, the field hint, + listening
+  // tint on its mic). The transcript line is updated separately in renderCaption.
+  const ms = $("miniStatus"), mm = $("miniMic"), mh = $("miniHint");
+  if (ms && mm) {
+    const ph = !state.micOn ? "Paused" : state.phase === "speaking" ? "Speaking" : state.phase === "thinking" ? "Thinking" : "Listening";
+    const fieldTxt = ai === -1 ? "Review" : escapeHTML(FIELDS[ai].label);
+    ms.innerHTML = "<b>" + ph + '</b><span class="dock-dot">·</span>' + fieldTxt;
+    if (mh) mh.textContent = ai === -1 ? "" : (FIELDS[ai].hint || "");
+    mm.classList.toggle("listening", state.micOn && state.phase === "listening");
+    mm.setAttribute("aria-label", state.micOn ? "Pause microphone" : "Start microphone");
+  }
 
   if (ai === -1) {
     // review / confirm screen
@@ -1061,8 +1097,19 @@ function renderCaption() {
   const u = state.userBuf || state.lastUser || "";
   const a = state.asstBuf || state.lastAsst || "";
   $("caption").innerHTML =
-    (a ? "<b>Ramble:</b> " + escapeHTML(a) + "<br>" : "") +
+    (a ? "<b>FormSpeak:</b> " + escapeHTML(a) + "<br>" : "") +
     (u ? '<span class="you">You: ' + escapeHTML(u) + "</span>" : "");
+
+  // Mini-bar transcript: show the last exchange in chronological order — your reply
+  // first, then FormSpeak's line after it (a turn arrives as your speech, then its
+  // reply). Falls back to lastUser/lastAsst so it persists between turns and is only
+  // replaced when the next turn completes. Two lines max.
+  const mc = $("miniCap");
+  if (mc) {
+    mc.innerHTML =
+      (u ? '<span class="cap-line">You: ' + escapeHTML(u) + "</span>" : "") +
+      (a ? '<span class="cap-line"><b>FormSpeak:</b> ' + escapeHTML(a) + "</span>" : "");
+  }
 }
 
 function escapeHTML(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -1172,7 +1219,7 @@ function setLevel(rms, open) {
 const STATUS = {
   listening: { glyph: "",     text: "Listening… " + tap + " to pause", aria: "Stop listening",       say: "Listening." },
   thinking:  { glyph: "dots", text: "Thinking…",                       aria: "Microphone on, thinking", say: "Thinking." },
-  speaking:  { glyph: "bars", text: "Ramble is speaking…",             aria: "Microphone on, assistant speaking", say: "" },
+  speaking:  { glyph: "bars", text: "FormSpeak is speaking…",             aria: "Microphone on, assistant speaking", say: "" },
 };
 let _lastSaidPhase = null;
 function renderStatus() {
@@ -1295,6 +1342,33 @@ if (heroVerb) heroVerb.textContent = tap;
 
 // Show the editable form + hero focused card right away, before any connection.
 buildForm(); renderProgress(); renderRail(null); renderCard();
+
+// Overlay mini-bar: slide it in once the full mic dock scrolls out of the top of
+// the panel, and out again when it returns. Driven by an IntersectionObserver on
+// the dock (no scroll math, no layout reads) — and because the bar is position:
+// fixed, toggling it overlays the page instead of reflowing it, so there's no
+// scroll jump. Mobile only (on desktop the panel is a floating card, not a
+// scroller, and .minibar is display:none).
+(() => {
+  const minibar = $("minibar");
+  const dock = document.querySelector(".dock");
+  const scroller = document.querySelector(".app");
+  if (!minibar || !dock || !scroller) return;
+  const mq = window.matchMedia("(max-width: 759px)");
+  // .inert tracks visibility: when the bar is off-screen it must not be focusable or
+  // exposed to assistive tech (that's why we don't aria-hide the container — it holds
+  // the focusable mic). show ⇒ interactive; hidden ⇒ inert.
+  const setShown = (shown) => { minibar.classList.toggle("show", shown); minibar.inert = !shown; };
+  const io = new IntersectionObserver(
+    ([e]) => setShown(mq.matches && !e.isIntersecting),
+    { root: scroller, threshold: 0 }
+  );
+  io.observe(dock);
+  const onMq = () => { if (!mq.matches) setShown(false); };
+  (mq.addEventListener ? mq.addEventListener("change", onMq) : mq.addListener(onMq));
+  // The mini mic is just a proxy for the real control (connect / pause / resume).
+  $("miniMic").addEventListener("click", () => $("micBtn").click());
+})();
 </script>
 </body>
 </html>
