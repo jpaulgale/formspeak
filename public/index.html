@@ -1176,6 +1176,20 @@ function setMicOn(on) {
   renderStatus();
 }
 
+// Fully release the mic device — not just mute it. A paused track (enabled=false)
+// still holds the microphone, so the OS keeps showing the "in use" indicator and
+// the tab counts as recording. Stopping the tracks + closing the capture context
+// hands the device back. The ws session is left intact; resume re-acquires via
+// startMic(). Idempotent and safe to call when nothing is acquired.
+function releaseMic() {
+  if (state.micStream) { state.micStream.getTracks().forEach((t) => t.stop()); state.micStream = null; }
+  if (state.capCtx) { state.capCtx.close().catch(() => {}); state.capCtx = null; state.capNode = null; }
+  state.micOn = false;
+  clearTimeout(state.thinkTimer);
+  setLevel(0);
+  setMicUI();
+}
+
 function sendAudio(base64) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN)
     state.ws.send(JSON.stringify({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: base64 } } }));
@@ -1328,9 +1342,22 @@ async function begin() {
 }
 
 // First tap connects + starts the mic; later taps pause/resume.
+// Resume after the device was released (tab was hidden) re-acquires via startMic();
+// a normal pause/resume just toggles the existing track.
 $("micBtn").addEventListener("click", () => {
-  if (state.connected) setMicOn(!state.micOn);
-  else if (!$("micBtn").disabled) begin();
+  if (state.connected) {
+    if (!state.micOn && !state.micStream) startMic().catch((err) => { console.error(err); announce("Couldn't reopen the microphone."); });
+    else setMicOn(!state.micOn);
+  } else if (!$("micBtn").disabled) begin();
+});
+
+// Leaving the tab (switching apps, locking the phone, opening another tab) should
+// hand the microphone back — don't keep holding it open in the background, even
+// when paused. We fully release on hide; the user taps the mic to resume, which
+// re-acquires. Note: a muted/paused track still counts as recording to the OS, so
+// pausing alone isn't enough — releaseMic() stops the tracks outright.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && state.micStream) releaseMic();
 });
 $("restartBtn").addEventListener("click", () => location.reload());
 
