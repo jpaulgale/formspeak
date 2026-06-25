@@ -249,6 +249,32 @@ function resumeContext() {
     next.label + " (\"" + next.q + "\").";
 }
 
+// Turn a raw WebSocket close into something a user can act on. The Gemini Live
+// API closes with a numeric code (and sometimes a reason string) that means
+// nothing to a person — "Connection closed (1008)." doesn't tell you it's
+// usually a recoverable token/session timeout. Map the common ones and always
+// say how to get going again.
+function closeMessage(ev) {
+  const reconnect = " " + TAP + " the mic to reconnect.";
+  const reason = (ev.reason || "").trim();
+  switch (ev.code) {
+    case 1008: // policy violation — token expired/invalid, quota, or session limit
+      return "The voice session timed out." + reconnect;
+    case 1011: // server-side error
+    case 1012: // service restarting
+    case 1013: // try again later
+      return "The voice service had a hiccup." + reconnect;
+    case 1006: // abnormal (no close frame) — network drop
+    case 1001: // going away
+      return "Lost the connection." + reconnect;
+    case 1009: // message too big
+      return "That was too much audio at once." + reconnect;
+    default:
+      // Unknown code: still be friendly, but surface the reason if Google gave one.
+      return "The voice session ended" + (reason ? " (" + reason + ")" : "") + "." + reconnect;
+  }
+}
+
 function connect(token) {
   return new Promise((resolve, reject) => {
     const url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=" + token;
@@ -282,8 +308,11 @@ function connect(token) {
     ws.onerror = () => reject(new Error("WebSocket error — check the API key / model id."));
     ws.onclose = (ev) => {
       setConn(false);
-      if (!state.submitted && ev.code !== 1000 && ev.code !== 1005)
-        $("caption").innerHTML = '<span class="err">Connection closed (' + ev.code + ').</span>';
+      // 1000 = normal, 1005 = no status (we closed it) → not errors worth showing.
+      if (state.submitted || ev.code === 1000 || ev.code === 1005) return;
+      const msg = closeMessage(ev);
+      $("caption").innerHTML = '<span class="err">' + escapeHTML(msg) + "</span>";
+      announce(msg);
     };
   });
 }
