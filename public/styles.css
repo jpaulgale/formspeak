@@ -1,0 +1,346 @@
+:root {
+  /* ---------- NYC Digital Design System tokens ---------- */
+  --blue-40: #103FEF;   /* primary / brand */
+  --blue-10: #050560;   /* dark blue — hover / active */
+  --blue-70: #70BAFF;   /* information */
+  --blue-80: #B5DBFF;
+  --green-40: #00B703;  /* success */
+  --yellow-40: #FFB320; /* caution */
+  --red-40: #EC131E;    /* error */
+  --black: #000000;
+  --gray-20: #333333;
+  --gray-30: #555555;
+  --gray-40: #777777;
+  --gray-70: #CCCCCC;
+  --gray-80: #DDDDDD;
+  --gray-90: #EEEEEE;
+  --white: #FFFFFF;
+
+  /* ---------- semantic (mapped to NYC DS) ---------- */
+  --bg: #EEEEEE;          /* Gray 90 page background */
+  --bg2: #DDDDDD;
+  --card: #FFFFFF;
+  --ink: #000000;
+  --muted: #555555;       /* Gray 30 */
+  --line: #DDDDDD;        /* Gray 80 */
+  --accent: #103FEF;      /* Blue 40 */
+  --accent-dark: #050560; /* Blue 10 */
+  --accent-soft: #D7E2FF; /* tint of Blue */
+  --ok: #00B703;          /* Green 40 — large decorative fills only */
+  --ok-text: #0A7D17;     /* accessible green for TEXT / small glyphs (~5:1 on white) */
+  --warn: #EC131E;        /* Red 40 — large fills */
+  --warn-text: #C20A12;   /* accessible red for error TEXT (~6:1 on white) */
+  --flash: #FFF1D6;       /* tint of Caution / Yellow 40 */
+  /* layered soft elevation: hairline ambient + diffuse drop (even on all sides) */
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px -12px rgba(0,0,0,.18);
+
+  --font-body: "Noto Sans", ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Clash Grotesk", "Noto Sans", ui-sans-serif, -apple-system, sans-serif;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+
+/* Visually hidden but available to screen readers (live-region announcements). */
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+/* <main> wrapper: take over the column-fill role formerly on #formScreen. */
+.appmain { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+
+/* ---------------------------------------------------------------------------
+   NYC Digital Design System integration seam.
+   Controls carry both our local classes (.ff-input, .ff-submit, .btn-ghost…)
+   AND the official component class hooks (.nyc-textinput, .nyc-button…). Our
+   token-based rules below style them today; installing @nycds/core's CSS (from
+   the private Azure registry) overrides these with the canonical component look,
+   no markup changes required. Shared, non-conflicting base lives here.
+   --------------------------------------------------------------------------- */
+.nyc-button { font-family: var(--font-body); cursor: pointer; }
+.nyc-button:focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
+body {
+  font-family: var(--font-body); font-weight: 500;
+  color: var(--ink);
+  background: var(--bg);
+  display: flex; justify-content: center; align-items: stretch;
+  min-height: 100dvh;
+}
+.app {
+  width: 100%; max-width: 460px; min-height: 100dvh;
+  display: flex; flex-direction: column;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  gap: 14px;
+  background: var(--white);
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  overflow-x: hidden; /* keep everything inside the white panel */
+}
+/* NYC DS accessible focus: dashed outline */
+:focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
+
+/* ---------- top bar ---------- */
+.topbar { display: flex; align-items: center; justify-content: space-between; color: var(--ink); }
+.brand { font-family: var(--font-display); font-weight: 600; letter-spacing: -.01em; font-size: 18px; display: flex; align-items: center; gap: 9px; }
+.brand .dot { width: 12px; height: 12px; border-radius: 0; background: var(--accent); }
+.conn { font-size: 12px; font-weight: 600; color: var(--gray-30); display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.conn .led { width: 8px; height: 8px; border-radius: 50%; background: var(--gray-70); transition: background .3s; }
+.conn.live .led { background: var(--ok); }
+/* hide the connection indicator until live — no OFFLINE on the landing page */
+.conn:not(.live) { display: none; }
+
+.progress { display: flex; gap: 6px; }
+.progress .seg { flex: 1; height: 4px; border-radius: 0; background: var(--gray-80); overflow: hidden; }
+.progress .seg > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
+.progress .seg.done > i { width: 100%; background: var(--ok); }
+.progress .seg.active > i { width: 100%; }
+
+/* ---------- card / stage ---------- */
+.stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 26px 22px 22px; position: relative; overflow: hidden;
+}
+.qmeta { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 10px; }
+.qtext { font-family: var(--font-display); font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
+.qhint { color: var(--muted); font-size: 15px; margin-top: 8px; line-height: 1.5; }
+.answer {
+  margin-top: 18px; min-height: 46px; font-size: 27px; font-weight: 600; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 10px; color: var(--ink);
+}
+.answer.empty { color: var(--gray-30); font-weight: 500; font-size: 20px; }
+.answer.empty.muted { font-size: 17px; } /* mic-off / busy hint — no blinking caret */
+.answer .caret { width: 2px; height: 26px; background: var(--accent); animation: blink 1.1s steps(1) infinite; border-radius: 0; }
+@keyframes blink { 50% { opacity: 0; } }
+.card.anim { animation: slideIn .42s cubic-bezier(.2,.7,.2,1); }
+@keyframes slideIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* review screen card uses a list */
+.review-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+
+/* ---------- review rail ---------- */
+.rail { background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 4px;
+  transition: background .5s;
+}
+.row.flash { background: var(--flash); }
+.row .ic { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--gray-70); flex: none; display: grid; place-items: center; }
+.row.filled .ic { border-color: var(--ok); background: var(--ok); }
+.row.filled .ic::after { content: "✓"; color: #fff; font-size: 11px; font-weight: 800; }
+.row .lab { font-size: 13px; color: var(--gray-30); width: 96px; flex: none; }
+.row .val { font-size: 14px; font-weight: 600; color: var(--ink); flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .val.placeholder { color: var(--gray-30); font-weight: 500; }
+.eye { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; font-weight: 600; padding: 4px 10px; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; text-decoration: underline; }
+
+/* ---------- live editable form ---------- */
+/* Flat surface (border only) so the elevated hero card above it is the single
+   source of elevation — avoids two drop shadows compounding at the seam. */
+.liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px; display: flex; flex-direction: column; gap: 8px; }
+.ff { display: flex; flex-direction: column; gap: 5px; border-radius: 4px; padding: 6px 8px; transition: background .5s; }
+.ff.flash { background: var(--flash); }
+.ff-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
+.ff-lab { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.ff-badge { display: inline-flex; align-items: center; }
+.ff-check { color: var(--ok-text); font-weight: 800; font-size: 14px; }
+.ff-inputwrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* min-width:0 lets the input shrink inside the flex row — without it the native
+   date picker / select keep their intrinsic width and spill past the white panel. */
+.ff-input { flex: 1; width: 100%; min-width: 0; max-width: 100%; border: 1.5px solid var(--gray-70); border-radius: 6px; padding: 11px 12px; font: inherit; font-size: 16px; font-weight: 600; color: var(--ink); background: var(--white); transition: border-color .15s, background .15s, box-shadow .15s; }
+.ff-input::placeholder { color: var(--gray-30); font-weight: 500; }
+.ff-input:focus { outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px var(--accent-soft); }
+textarea.ff-input { resize: none; line-height: 1.3; }
+/* Native date picker: match the light theme and tint the calendar button. */
+input[type="date"].ff-input { color-scheme: light; cursor: pointer; min-height: 46px; }
+input[type="date"].ff-input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .65; filter: invert(13%) sepia(99%) saturate(7000%) hue-rotate(353deg); }
+input[type="date"].ff-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+/* Dropdown: same field chrome plus a custom chevron (native arrow removed). */
+select.ff-select { cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23EC131E' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px; }
+select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-30); }
+.ff.filled .ff-input { border-color: var(--ok); }
+.ff-eye { flex: none; background: none; border: none; color: var(--accent); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 10px; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; text-decoration: underline; }
+.ff-submit { margin-top: 4px; border: none; border-radius: 99px; padding: 14px; font: inherit; font-family: var(--font-body); font-weight: 700; font-size: 15px; color: #fff; background: var(--accent); cursor: pointer; transition: background .15s, transform .1s; }
+.ff-submit:hover { background: var(--accent-dark); }
+.ff-submit:active { transform: scale(.985); }
+.ff-hint { color: var(--warn-text); font-size: 13px; font-weight: 600; text-align: center; min-height: 14px; }
+
+/* ---------- NYC DS Error Summary (feedback component) ---------- */
+.nyc-errorsummary {
+  border: 1.5px solid var(--warn-text); border-left-width: 6px; border-radius: 6px;
+  background: rgba(236,19,30,.05); padding: 12px 14px; margin-bottom: 4px;
+}
+.nyc-errorsummary[hidden] { display: none; }
+.nyc-errorsummary__title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--warn-text); margin-bottom: 6px; }
+.nyc-errorsummary__list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.nyc-errorsummary__list a { color: var(--warn-text); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.nyc-errorsummary__list a:hover { color: #8E060C; }
+/* fields called out by the summary get a red border to match */
+.ff.invalid .ff-input { border-color: var(--warn-text); box-shadow: 0 0 0 2px rgba(236,19,30,.15); }
+
+/* ---------- NYC DS Inline Message (feedback component) ---------- */
+.nyc-inlinemessage {
+  display: flex; align-items: flex-start; gap: 9px;
+  border-radius: 6px; border-left: 4px solid; padding: 10px 12px;
+  font-size: 14px; line-height: 1.4; font-weight: 600;
+}
+.nyc-inlinemessage__icon { flex: none; font-weight: 800; line-height: 1.3; display: inline-flex; align-items: center; }
+.nyc-inlinemessage__text { min-width: 0; }
+.nyc-inlinemessage--info    { background: var(--accent-soft);        border-left-color: var(--accent);    color: var(--accent-dark); }
+.nyc-inlinemessage--success { background: rgba(0,183,3,.10);         border-left-color: var(--ok-text);   color: var(--ok-text); }
+.nyc-inlinemessage--error   { background: rgba(236,19,30,.07);       border-left-color: var(--warn-text); color: var(--warn-text); }
+.nyc-inlinemessage a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+
+/* ---------- address borough picker (A/B/C: tap or say) ---------- */
+.addr-choices { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ac-q { font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 1px; }
+.ac-opt {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  border: 1.5px solid var(--gray-70); border-radius: 8px; background: var(--white);
+  padding: 9px 11px; font: inherit; cursor: pointer; color: var(--ink);
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .08s;
+}
+.ac-opt:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ac-opt:active { transform: scale(.99); }
+.ac-letter {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border-radius: 6px; background: var(--accent); color: #fff; font-weight: 800; font-size: 15px;
+}
+.ac-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.ac-text b { font-size: 15px; font-weight: 700; }
+.ac-sub { font-size: 12px; color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- caption (live transcript: under the mic, above the form) ---------- */
+.caption { min-height: 20px; color: var(--gray-20); font-size: 15px; line-height: 1.45; text-align: center; padding: 0 6px; overflow-wrap: anywhere; }
+.caption:empty { display: none; }
+.caption b { color: var(--accent); font-weight: 700; }
+.caption .you { color: var(--ink); font-weight: 600; }
+
+/* ---------- mic button ---------- */
+.dock { display: flex; flex-direction: column; align-items: center; gap: 9px; }
+.mic-wrap { position: relative; width: 92px; height: 92px; display: grid; place-items: center; }
+.ring { position: absolute; inset: 0; border-radius: 50%; background: var(--accent); opacity: .18; transform: scale(.6); transition: transform .08s linear; }
+.mic {
+  position: relative; width: 74px; height: 74px; border-radius: 50%; border: 2px solid var(--gray-80); cursor: pointer;
+  background: var(--accent); color: #fff;
+  box-shadow: 0 8px 22px -8px rgba(16,63,239,.55); display: grid; place-items: center;
+  transition: transform .12s, background .2s; touch-action: manipulation;
+}
+.mic:hover { background: var(--accent-dark); }
+.mic:active { transform: scale(.94); }
+.mic svg { width: 30px; height: 30px; }
+.mic.listening { background: var(--red-40); border-color: var(--red-40); box-shadow: 0 8px 22px -8px rgba(236,19,30,.55); }
+.mic.listening:hover { background: #C50F18; }
+.mic.idle-pulse::before {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid rgba(16,63,239,.5);
+  animation: pulse 2s ease-out infinite;
+}
+@keyframes pulse { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.35); opacity: 0; } }
+.mic-label { color: var(--ink); font-size: 14px; font-weight: 600; min-height: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.mic-sub { color: var(--gray-30); font-size: 12px; margin-top: -4px; }
+
+/* ---------- activity glyphs (thinking / speaking) ---------- */
+.tdots { display: inline-flex; gap: 4px; }
+.tdots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: tbounce 1.1s infinite ease-in-out both; }
+.tdots i:nth-child(2) { animation-delay: .15s; }
+.tdots i:nth-child(3) { animation-delay: .3s; }
+@keyframes tbounce { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-5px); opacity: 1; } }
+.sbars { display: inline-flex; gap: 3px; align-items: center; height: 16px; }
+.sbars i { width: 3px; height: 5px; border-radius: 2px; background: var(--accent); animation: sbar .9s infinite ease-in-out; }
+.sbars i:nth-child(2) { animation-delay: .12s; }
+.sbars i:nth-child(3) { animation-delay: .24s; }
+.sbars i:nth-child(4) { animation-delay: .36s; }
+@keyframes sbar { 0%, 100% { height: 5px; } 50% { height: 15px; } }
+/* mic glow while the assistant works, so the dock itself reads as "busy" */
+.mic.busy { animation: micbusy 1.4s ease-out infinite; }
+@keyframes micbusy { 0% { box-shadow: 0 0 0 0 rgba(16,63,239,.5); } 100% { box-shadow: 0 0 0 16px rgba(16,63,239,0); } }
+/* inline spinner for the save step */
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--gray-70); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+.spin.sm { width: 9px; height: 9px; border-width: 2px; margin-right: 3px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- address confirmation (NYC geosearch) ---------- */
+.vbadge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; flex: none; letter-spacing: .01em; }
+.vbadge.ok { background: rgba(0,183,3,.14); color: var(--ok-text); }
+.vbadge.warn { background: rgba(236,19,30,.12); color: var(--warn-text); }
+.vbadge.checking { background: var(--gray-90); color: var(--gray-30); }
+/* let the address wrap so the full, borough-qualified address is visible */
+.row.addr { align-items: flex-start; flex-wrap: wrap; }
+.row.addr .val { white-space: normal; overflow: visible; text-align: right; line-height: 1.3; }
+.row.addr .vbadge { margin-top: 2px; }
+.addr-status { margin-top: 12px; }
+
+/* ---------- start / done overlays ---------- */
+.screen { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 16px; color: var(--ink); padding: 10px; }
+.screen h1 { font-family: var(--font-display); font-size: 34px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.hl { color: var(--accent); }  /* Blue 40 #103FEF — ~7:1 on white, AAA */
+.hero { font-family: var(--font-display); font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.14; text-align: center; color: var(--ink); }
+.screen p { color: var(--gray-30); font-size: 16px; max-width: 320px; line-height: 1.55; }
+.pillrow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.pill { font-size: 13px; font-weight: 600; color: var(--gray-20); background: var(--gray-90); border: 1px solid var(--line); padding: 6px 12px; border-radius: 99px; }
+.big-cta { margin-top: 8px; }
+.success-ic { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); display: grid; place-items: center; box-shadow: 0 14px 36px -10px rgba(0,183,3,.55); animation: pop .5s cubic-bezier(.2,.8,.2,1); }
+.success-ic::after { content: "✓"; color: #fff; font-size: 44px; font-weight: 800; }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.final-card { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; box-shadow: var(--shadow); }
+.final-card .row .lab { color: var(--gray-30); }
+.final-card .row .val { color: var(--ink); }
+.btn-ghost { background: var(--white); color: var(--accent); border: 1px solid var(--gray-70); padding: 12px 22px; border-radius: 99px; font-family: var(--font-body); font-size: 15px; font-weight: 700; cursor: pointer; transition: color .2s, border-color .2s; }
+.btn-ghost:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+/* primary pill (used as the "Email me" anchor on the done screen) */
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--accent); color: #fff; border: none; padding: 13px 26px; border-radius: 99px;
+  font-family: var(--font-body); font-size: 15px; font-weight: 700; cursor: pointer; text-decoration: none;
+  transition: background .15s, transform .1s; }
+.btn-primary:hover { background: var(--accent-dark); }
+.btn-primary:active { transform: scale(.985); }
+.thanks { color: var(--ink); font-weight: 700; font-size: 16px; margin-top: 4px; }
+/* hackathon attribution (top of landing + done screen) */
+.credit { color: var(--gray-30); font-size: 13px; line-height: 1.4; text-align: center; }
+.credit a { color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.credit a:hover { color: var(--accent-dark); }
+.credit-foot { margin-top: 2px; padding-bottom: 4px; }
+/* "Optional" tag next to the notes label */
+.ff-lab-opt { font-size: 11px; font-weight: 600; color: var(--gray-40); text-transform: uppercase; letter-spacing: .04em; }
+
+.hidden { display: none !important; }
+.err { color: var(--warn-text); font-size: 13px; font-weight: 600; }
+
+/* ---------- desktop layout ---------- */
+@media (min-width: 760px) {
+  /* float the panel as a centered card instead of a full-height phone column */
+  body { align-items: flex-start; }
+  .app {
+    max-width: 660px;
+    min-height: auto;
+    align-self: flex-start;
+    margin: 40px auto;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 26px 26px max(26px, env(safe-area-inset-bottom));
+  }
+  /* a touch more presence for the headline on wide screens */
+  .hero { font-size: 32px; }
+  /* two-column editable form; address + submit + hint span the full width */
+  .liveform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
+  .nyc-errorsummary,
+  .liveform .ff[data-key="address"],
+  .ff-notes,
+  .ff-submit,
+  .ff-hint { grid-column: 1 / -1; }
+}
+
+/* ---------- respect reduced-motion (vestibular / elderly comfort) ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .answer .caret { animation: none; opacity: 1; }   /* steady caret, no blink */
+  .mic.idle-pulse::before { display: none; }          /* drop the looping mic halo */
+  .mic.busy { animation: none; }
+}
