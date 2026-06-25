@@ -301,7 +301,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .credit a { color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .credit a:hover { color: var(--accent-dark); }
 .credit-foot { margin-top: 2px; padding-bottom: 4px; }
-/* "Optional" tag next to the notes label */
+/* "Optional" tag next to the feedback label */
 .ff-lab-opt { font-size: 11px; font-weight: 600; color: var(--gray-40); text-transform: uppercase; letter-spacing: .04em; }
 
 .hidden { display: none !important; }
@@ -327,7 +327,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   .liveform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
   .nyc-errorsummary,
   .liveform .ff[data-key="address"],
-  .ff-notes,
+  .ff-feedback,
   .ff-submit,
   .ff-hint { grid-column: 1 / -1; }
 }

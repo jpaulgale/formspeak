@@ -8,6 +8,6 @@ CREATE TABLE IF NOT EXISTS submissions (
   ssn              TEXT NOT NULL DEFAULT '',
   household_size   TEXT NOT NULL DEFAULT '',
   household_income TEXT NOT NULL DEFAULT '',
-  notes            TEXT NOT NULL DEFAULT '',
+  feedback         TEXT NOT NULL DEFAULT '',
   created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

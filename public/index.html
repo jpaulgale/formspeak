@@ -120,7 +120,7 @@ How to behave:
   • "ambiguous" without options: ask the user which city or borough they mean, then say it back and re-confirm.
   • "could not confirm": tell them you couldn't find it at all and ask them to repeat the street number, street, and city/borough.
   The address is NOT done until the tool reports "confirmed". Never call submit_form while the address is unconfirmed.
-- There is also an OPTIONAL field called "notes" — the user's thoughts on this demo. It is never required: don't ask for it before the seven, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "notes" and their words. If they have none or skip it, just submit as normal.
+- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the seven, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
 - Keep every spoken reply short and natural — one or two sentences, no filler.
 - When all seven fields are filled, read back ALL seven values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
 - NEVER call submit_form until the user has verbally confirmed everything.`;
@@ -133,7 +133,7 @@ const TOOLS = [{
       parameters: {
         type: "object",
         properties: {
-          field: { type: "string", enum: FIELDS.map(f => f.key).concat(["notes"]), description: "Which field to fill. 'notes' is the optional demo-feedback field." },
+          field: { type: "string", enum: FIELDS.map(f => f.key).concat(["feedback"]), description: "Which field to fill. 'feedback' is the optional demo-feedback field." },
           value: { type: "string", description: "The normalized value to display in that field." },
         },
         required: ["field", "value"],
@@ -336,11 +336,11 @@ async function handleServerMessage(e, onSetup) {
 async function dispatchTool(name, args) {
   if (name === "set_field") {
     if (typeof args.value !== "string") return "ok";
-    // The optional "notes" field lives outside FIELDS (it's only added to the tool
+    // The optional "feedback" field lives outside FIELDS (it's only added to the tool
     // enum), so handle it here — otherwise the FIELDS.find below misses it, we bail
     // with "ok", and the model wrongly believes the bug/suggestion/compliment landed.
-    if (args.field === "notes") {
-      setField("notes", args.value);
+    if (args.field === "feedback") {
+      setField("feedback", args.value);
       return "Saved to the optional demo-feedback field. Briefly acknowledge it and continue.";
     }
     const f = FIELDS.find((x) => x.key === args.field);
@@ -626,8 +626,8 @@ function activeIndex() {
 function setField(key, value) {
   // Optional demo-feedback field: lives outside the required-field flow, so it
   // only updates the textarea — no progress/validation/review impact.
-  if (key === "notes") {
-    const ta = document.getElementById("notesInput");
+  if (key === "feedback") {
+    const ta = document.getElementById("feedbackInput");
     if (ta && ta.value !== value) {
       ta.value = value;
       announce("Saved your demo feedback.");
@@ -813,9 +813,9 @@ function buildForm() {
     }).join("") +
     // Optional, type-only feedback field — outside the voice FIELDS flow, so it
     // isn't validated/required and the model never tries to fill it.
-    '<label class="ff ff-notes">' +
+    '<label class="ff ff-feedback">' +
       '<span class="ff-top"><span class="ff-lab">Any thoughts on this demo?</span><span class="ff-lab-opt">Optional</span></span>' +
-      '<span class="ff-inputwrap"><textarea class="ff-input nyc-textarea" id="notesInput" rows="2" placeholder="Found a bug? Have a suggestion? Tell me what you think…"></textarea></span>' +
+      '<span class="ff-inputwrap"><textarea class="ff-input nyc-textarea" id="feedbackInput" rows="2" placeholder="Found a bug? Have a suggestion? Tell me what you think…"></textarea></span>' +
     "</label>" +
     '<button type="submit" class="ff-submit nyc-button nyc-button--primary" id="formSubmit">Submit form</button>' +
     '<div class="ff-hint" id="formHint" role="alert" aria-live="assertive"></div>';
@@ -861,11 +861,11 @@ function buildForm() {
   // real submit button (voice "yes" path still works via submit_form → showDone)
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const notes = (document.getElementById("notesInput")?.value || "").trim();
+    const feedback = (document.getElementById("feedbackInput")?.value || "").trim();
     const errors = collectErrors();
     // Escape hatch: if the user wrote feedback (e.g. a bug report), let them submit
     // even with the rest incomplete — so a blocker can always be reported.
-    if (errors.length && !notes) {
+    if (errors.length && !feedback) {
       renderErrorSummary(errors);
       return;
     }
@@ -1203,16 +1203,16 @@ async function showDone() {
   if (heading && heading.focus) heading.focus();
   announce("All set. Your details were captured and confirmed. Saving…");
   // Carry the optional demo feedback into the email button's prefilled body.
-  const notes = (document.getElementById("notesInput")?.value || "").trim();
+  const feedback = (document.getElementById("feedbackInput")?.value || "").trim();
   const emailBtn = $("emailBtn");
   if (emailBtn) emailBtn.href = "mailto:jpaulgale@gmail.com?subject=" + encodeURIComponent("FormSpeak") +
-    (notes ? "&body=" + encodeURIComponent(notes) : "");
+    (feedback ? "&body=" + encodeURIComponent(feedback) : "");
   // persist confirmed submission to D1
   const save = $("saveStatus");
   save.innerHTML = '<span class="spin" aria-hidden="true"></span>Saving…'; save.className = "mic-sub"; save.style.color = "";
   try {
     const payload = {}; FIELDS.forEach((f) => (payload[f.key] = state.values[f.key] || ""));
-    payload.notes = notes;
+    payload.feedback = feedback;
     const r = await fetch("/api/submit", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });

@@ -3,7 +3,7 @@
 // wrangler-subprocess hack, so PII like O'Brien is handled safely.
 const FIELDS = [
   "first_name", "last_name", "address", "date_of_birth", "ssn",
-  "household_size", "household_income", "notes",
+  "household_size", "household_income", "feedback",
 ];
 
 export const onRequestPost = async (ctx) => {
