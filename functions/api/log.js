@@ -50,8 +50,8 @@ export const onRequestPost = async (ctx) => {
 
   const stmts = [
     env.DB.prepare(
-      `INSERT INTO sessions (session_id, ip_hash, country, region, city, colo, user_agent, event_count, submitted)
-       VALUES (?,?,?,?,?,?,?,?,?)
+      `INSERT INTO sessions (session_id, ip_hash, country, region, city, colo, as_org, user_agent, event_count, submitted)
+       VALUES (?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(session_id) DO UPDATE SET
          last_seen   = datetime('now'),
          event_count = event_count + ?,
@@ -63,6 +63,9 @@ export const onRequestPost = async (ctx) => {
       cf.region || "",
       cf.city || "",
       cf.colo || "",
+      // The network/ISP behind the client IP (e.g. "IBM", "Comcast", "CLOUDFLARENET").
+      // A cloud/VPN org here is the tell that geo is a proxy egress, not the real user.
+      cf.asOrganization || "",
       ua,
       events.length,
       submitted,

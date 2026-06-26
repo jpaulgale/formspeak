@@ -35,7 +35,7 @@ def query(sql: str) -> list[dict]:
 
 def sessions() -> list[dict]:
     return query(
-        "SELECT session_id, submitted, event_count, country, region, city, colo, "
+        "SELECT session_id, submitted, event_count, country, region, city, colo, as_org, "
         "substr(ip_hash,1,10) AS ip_hash, started_at, last_seen "
         "FROM sessions ORDER BY last_seen DESC LIMIT 500;"
     )
@@ -174,7 +174,7 @@ function render(){
       <div class="meta">
         <div class="top"><span class="id">${s.session_id.slice(0,8)}</span><span class="when">${ago(s.last_seen)}</span></div>
         <div class="geo">${esc(geo)} · ${esc(s.colo||"")}</div>
-        <div class="n">${s.event_count} events · ip ${esc(s.ip_hash||"—")}</div>
+        <div class="n">${s.event_count} events${s.as_org?" · "+esc(s.as_org):""}</div>
       </div></div>`;
   }).join("")||`<div class="empty">No sessions.</div>`;
   document.querySelectorAll(".row").forEach(r=>r.onclick=()=>open(r.dataset.id));
@@ -211,6 +211,7 @@ function draw(d){
   const geo=[s.city,s.region,s.country].filter(Boolean).join(", ");
   $("#mmeta").innerHTML=[
     geo&&`📍 ${esc(geo)} (${esc(s.colo||"")})`,
+    s.as_org&&`🏢 ${esc(s.as_org)}`,
     s.ip_hash&&`🔑 ${esc(String(s.ip_hash).slice(0,12))}`,
     `🕑 ${ago(s.started_at)} → ${ago(s.last_seen)}`,
     `${s.event_count||ev.length} events`,

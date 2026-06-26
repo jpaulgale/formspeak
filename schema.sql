@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   region       TEXT NOT NULL DEFAULT '',
   city         TEXT NOT NULL DEFAULT '',
   colo         TEXT NOT NULL DEFAULT '',
+  as_org       TEXT NOT NULL DEFAULT '',   -- network/ISP behind the client IP (cloud/VPN tell)
   user_agent   TEXT NOT NULL DEFAULT '',
   event_count  INTEGER NOT NULL DEFAULT 0,
   submitted    INTEGER NOT NULL DEFAULT 0,      -- 1 once a submit_form/submit_saved event lands
