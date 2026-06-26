@@ -60,19 +60,45 @@ function featureToAddr(feature) {
   };
 }
 
+// Query the upstream with one quick retry. The model fires several lookups in a
+// burst while narrowing an address, and the hosted Pelias occasionally answers a
+// transient 5xx / times out under that — a single retry recovers most of them.
+async function fetchGeosearch(text) {
+  const u = new URL(GEOSEARCH_URL);
+  u.searchParams.set("text", text);
+  u.searchParams.set("size", "8"); // fetch extra so we can surface a top-4 after de-dupe
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) { lastErr = new Error("upstream " + r.status); continue; }
+      return await r.json();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("geosearch unreachable");
+}
+
 export const onRequestGet = async (ctx) => {
   const text = (new URL(ctx.request.url).searchParams.get("text") || "").trim();
   if (!text) return Response.json({ error: "missing text" }, { status: 400 });
 
   let data;
   try {
-    const u = new URL(GEOSEARCH_URL);
-    u.searchParams.set("text", text);
-    u.searchParams.set("size", "8"); // fetch extra so we can surface a top-4 after de-dupe
-    const r = await fetch(u, { signal: AbortSignal.timeout(8000) });
-    data = await r.json();
+    data = await fetchGeosearch(text);
   } catch (e) {
-    return Response.json({ status: "error", found: false, error: String(e?.message || e) }, { status: 502 });
+    // Geosearch is unreachable even after a retry. Rather than block the form on a
+    // dead dependency, DEGRADE GRACEFULLY: accept what the user said (carrying a
+    // borough if they named one) as a soft-confirm. `degraded` is flagged so it's
+    // visible in telemetry and the client can be honest that it wasn't verified.
+    const boro = detectBorough(text.toLowerCase());
+    const full = boro && !text.toLowerCase().includes(boro.toLowerCase())
+      ? `${text}, ${boro}` : text;
+    return Response.json({
+      status: "confirmed", found: true, degraded: true,
+      full, borough: boro, label: text, error: String(e?.message || e),
+    });
   }
 
   const features = data?.features || [];

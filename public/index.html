@@ -483,9 +483,16 @@ async function dispatchTool(name, args) {
       // Confirm against NYC geosearch; the canonical full address replaces what's shown.
       const j = await verifyAddress(args.value);
       if (!j) return "ok";                 // a newer correction superseded this lookup
-      if (j.status === "confirmed")
+      if (j.status === "confirmed") {
+        if (j.degraded)
+          // Geosearch was unreachable — we accepted the address without verifying it.
+          // Still have the model read it back so the user can catch any error.
+          return "Address accepted as: " + j.full +
+            " (the address lookup is temporarily unavailable, so it wasn't independently verified). " +
+            "Read this address back to the user, INCLUDING the borough/city, and ask them to confirm it.";
         return "Address confirmed by NYC geosearch as: " + j.full +
           ". Read this exact full address back to the user, INCLUDING the borough/city, and ask them to confirm it.";
+      }
       if (state.addrChoices.length) {
         // Couldn't auto-confirm, but we have candidates — they're now on screen as
         // lettered buttons (A–D). The same letters work by voice.
