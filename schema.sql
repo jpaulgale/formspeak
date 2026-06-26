@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   phone            TEXT NOT NULL DEFAULT '',
   household_size   TEXT NOT NULL DEFAULT '',
   household_income TEXT NOT NULL DEFAULT '',
+  preferred_language TEXT NOT NULL DEFAULT '',
   feedback         TEXT NOT NULL DEFAULT '',
   created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );

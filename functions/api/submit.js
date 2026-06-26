@@ -3,13 +3,14 @@
 // wrangler-subprocess hack, so PII like O'Brien is handled safely.
 const FIELDS = [
   "first_name", "last_name", "address", "date_of_birth", "phone",
-  "household_size", "household_income", "feedback",
+  "household_size", "household_income", "preferred_language", "feedback",
 ];
 
 const LABELS = {
   first_name: "First name", last_name: "Last name", address: "Address",
   date_of_birth: "DOB", phone: "Phone", household_size: "Household size",
-  household_income: "Monthly income", feedback: "Feedback",
+  household_income: "Monthly income", preferred_language: "Preferred language",
+  feedback: "Feedback",
 };
 
 // Fire-and-forget Telegram ping so a new submission lands in your chat instantly.
@@ -61,19 +62,22 @@ export const onRequestPost = async (ctx) => {
       .run();
 
   try {
-    try {
-      await insert();
-    } catch (e) {
-      // Self-healing migration: if the `phone` column hasn't been added to this
-      // database yet, add it via the (full-access) DB binding and retry once. Lets
-      // a fresh deploy persist phone numbers without a separate migration step.
-      if (/no column named phone|has no column named phone/i.test(String(e?.message || e))) {
-        try { await ctx.env.DB.prepare("ALTER TABLE submissions ADD COLUMN phone TEXT NOT NULL DEFAULT ''").run(); } catch { /* column raced in */ }
-        await insert();
-      } else {
-        throw e;
+    // Self-healing migration: if a newly-added field's column isn't on this database
+    // yet, the insert fails with "no column named <x>". We add it via the (full-access)
+    // DB binding and retry — looping so several new columns can be added in one request.
+    // The column name comes from SQLite's own error and is constrained to \w+, and we
+    // only ever add a TEXT column, so there's nothing injectable here.
+    let lastErr = null;
+    for (let attempt = 0; attempt < FIELDS.length + 1; attempt++) {
+      try { await insert(); lastErr = null; break; }
+      catch (e) {
+        lastErr = e;
+        const m = String(e?.message || e).match(/no column named (\w+)/i);
+        if (!m) throw e;
+        try { await ctx.env.DB.prepare(`ALTER TABLE submissions ADD COLUMN ${m[1]} TEXT NOT NULL DEFAULT ''`).run(); } catch { /* raced in */ }
       }
     }
+    if (lastErr) throw lastErr;
     // Notify after the write succeeds; waitUntil lets the response return
     // immediately while the ping finishes in the background.
     ctx.waitUntil(notifyTelegram(ctx.env, data));
