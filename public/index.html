@@ -229,6 +229,59 @@ const GATE_HANGOVER_MS = 400; // keep streaming briefly after speech dips
 const $ = (id) => document.getElementById(id);
 
 /* ============================================================
+   Telemetry  → batched POST /api/log (server adds IP-hash + geo)
+   ------------------------------------------------------------
+   The whole voice session lives in this browser (the WebSocket goes
+   straight to Google), so nothing about HOW people use the form reaches
+   the server on its own. This streams the session — ws lifecycle + close
+   codes, every tool call and its outcome, raw transcripts per turn,
+   errors, and a final snapshot on unload — so non-submissions can be
+   reviewed and stuck points spotted. Fail-safe: never throws, never blocks.
+   ============================================================ */
+const SESSION_ID =
+  (crypto.randomUUID && crypto.randomUUID()) ||
+  Date.now().toString(36) + Math.random().toString(16).slice(2);
+const tlog = {
+  q: [],
+  seq: 0,
+  timer: null,
+  startSent: false,
+  push(type, data) {
+    try {
+      this.q.push({ seq: this.seq++, type, ts: Date.now(), data: data || {} });
+      if (this.q.length >= 20) this.flush();
+      else if (!this.timer) this.timer = setTimeout(() => this.flush(), 4000);
+    } catch {}
+  },
+  flush(useBeacon) {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (!this.q.length) return;
+    const batch = this.q.splice(0, this.q.length);
+    const body = JSON.stringify({ sessionId: SESSION_ID, events: batch });
+    try {
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/log", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/api/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch {}
+  },
+};
+const logEvent = (type, data) => tlog.push(type, data);
+// How far an (often abandoned) session got, without replaying the transcript.
+const fieldsSnapshot = () => ({
+  filled: FIELDS.filter(isFilled).map((f) => f.key),
+  present: FIELDS.filter((f) => (state.values[f.key] || "").trim()).map((f) => f.key),
+  addr_status: state.addrStatus,
+  submitted: !!state.submitted,
+});
+
+/* ============================================================
    Token + WebSocket
    ============================================================ */
 async function getToken() {
@@ -326,12 +379,19 @@ function connect(token) {
       }));
     };
     ws.onmessage = (e) => handleServerMessage(e, resolve);
-    ws.onerror = () => reject(new Error("WebSocket error — check the API key / model id."));
+    ws.onerror = () => { logEvent("ws_error", {}); reject(new Error("WebSocket error — check the API key / model id.")); };
     ws.onclose = (ev) => {
       setConn(false);
       // 1000 = normal, 1005 = no status (we closed it) → not errors worth showing.
-      if (state.submitted || ev.code === 1000 || ev.code === 1005) return;
-      const msg = closeMessage(ev);
+      const benign = state.submitted || ev.code === 1000 || ev.code === 1005;
+      const msg = benign ? "" : closeMessage(ev);
+      // Log every close — the code/reason is the clearest signal of where the
+      // voice session broke for someone who never finished.
+      logEvent("ws_close", {
+        code: ev.code, reason: ev.reason || "", wasClean: ev.wasClean,
+        shown: msg, submitted: !!state.submitted, snapshot: fieldsSnapshot(),
+      });
+      if (benign) return;
       $("caption").innerHTML = '<span class="err">' + escapeHTML(msg) + "</span>";
       announce(msg);
     };
@@ -344,6 +404,7 @@ async function handleServerMessage(e, onSetup) {
 
   if (msg.setupComplete) {
     setConn(true);
+    logEvent("ws_ready", {});
     // The Live API never speaks first — it only responds to a turn of input. Send a
     // neutral opening turn so the model delivers its greeting (or, on a reconnect, the
     // "welcome back" line from resumeContext()) instead of sitting silently on the
@@ -363,7 +424,12 @@ async function handleServerMessage(e, onSetup) {
     const calls = msg.toolCall.functionCalls || [];
     const responses = [];
     for (const c of calls) {
-      responses.push({ id: c.id, name: c.name, response: { result: await dispatchTool(c.name, c.args || {}) } });
+      const result = await dispatchTool(c.name, c.args || {});
+      // The args + the result string ("confirmed" / "not confirmed" / the list of
+      // blocking problems / "submitted") are the richest diagnostic we have for
+      // where a session stalls — capture both verbatim.
+      logEvent("tool_call", { name: c.name, args: c.args || {}, result });
+      responses.push({ id: c.id, name: c.name, response: { result } });
     }
     state.ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
     return;
@@ -388,8 +454,10 @@ async function handleServerMessage(e, onSetup) {
   }
   if (sc.interrupted) { stopPlayback(); setPhase("listening"); }
   if (sc.turnComplete) {
-    if (state.userBuf.trim()) state.lastUser = state.userBuf.trim();
-    if (state.asstBuf.trim()) state.lastAsst = state.asstBuf.trim();
+    const u = state.userBuf.trim(), a = state.asstBuf.trim();
+    if (u) state.lastUser = u;
+    if (a) state.lastAsst = a;
+    if (u || a) logEvent("turn", { user: u, asst: a });
     state.userBuf = ""; state.asstBuf = ""; renderCaption();
     setPhase("listening");
   }
@@ -1361,6 +1429,7 @@ async function showDone() {
   try {
     const payload = {}; FIELDS.forEach((f) => (payload[f.key] = state.values[f.key] || ""));
     payload.feedback = feedback;
+    payload.session_id = SESSION_ID;     // stamp the row so it joins back to its telemetry session
     const r = await fetch("/api/submit", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
@@ -1368,8 +1437,11 @@ async function showDone() {
     if (!r.ok || j.error) throw new Error(j.error || "save failed");
     save.textContent = "✓ Saved"; save.style.color = "var(--ok-text)";
     announce("Your form was saved.");
+    logEvent("submit_saved", { fields: FIELDS.filter(isFilled).map((f) => f.key) });
+    tlog.flush();
   } catch (err) {
     console.error(err);
+    logEvent("error", { where: "save", message: String(err?.message || err) });
     save.textContent = "⚠ Couldn't save: " + (err.message || err); save.style.color = "var(--warn-text)";
     announce("Something went wrong saving your form. " + (err.message || ""));
   }
@@ -1382,6 +1454,17 @@ async function begin() {
   const btn = $("micBtn"), sub = $("startSub");
   btn.disabled = true; btn.classList.remove("idle-pulse");
   $("startErr").textContent = "";
+  if (!tlog.startSent) {
+    tlog.startSent = true;
+    logEvent("session_start", {
+      resume: FIELDS.some(isFilled),
+      prefilled: FIELDS.filter(isFilled).map((f) => f.key),
+      referrer: document.referrer || "",
+      lang: navigator.language || "",
+      tz: (Intl.DateTimeFormat().resolvedOptions().timeZone) || "",
+      viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 },
+    });
+  }
   try {
     sub.textContent = "Getting ready…";
     const token = await getToken();
@@ -1392,6 +1475,8 @@ async function begin() {
     renderProgress(); renderRail(null); renderCard(); renderCaption();
   } catch (err) {
     console.error(err);
+    // name distinguishes a denied mic (NotAllowedError) from a token/ws failure.
+    logEvent("error", { where: "begin", name: err?.name || "", message: String(err?.message || err) });
     $("startErr").textContent = err.message || String(err);
     announce("Couldn't start the microphone. " + (err.message || "") + " " + TAP + " to retry.");
     btn.disabled = false; btn.classList.add("idle-pulse");
@@ -1415,7 +1500,17 @@ $("micBtn").addEventListener("click", () => {
 // re-acquires. Note: a muted/paused track still counts as recording to the OS, so
 // pausing alone isn't enough — releaseMic() stops the tracks outright.
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && state.micStream) releaseMic();
+  if (document.hidden) {
+    if (state.micStream) releaseMic();
+    tlog.flush(true); // backgrounding may precede a close — get what we have out now
+  }
+});
+
+// Final beacon when the page is going away: records how far an abandoned session
+// got. pagehide is the reliable one on mobile (beforeunload often doesn't fire).
+window.addEventListener("pagehide", () => {
+  logEvent("session_end", fieldsSnapshot());
+  tlog.flush(true);
 });
 $("restartBtn").addEventListener("click", () => location.reload());
 

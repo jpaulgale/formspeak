@@ -53,12 +53,13 @@ export const onRequestPost = async (ctx) => {
   }
 
   const values = FIELDS.map((k) => String(data?.[k] ?? ""));
-  const cols = FIELDS.join(", ");
-  const placeholders = FIELDS.map(() => "?").join(", ");
+  const sessionId = String(data?.session_id ?? "").slice(0, 64);
+  const cols = FIELDS.concat("session_id").join(", ");
+  const placeholders = FIELDS.concat("session_id").map(() => "?").join(", ");
   const insert = () =>
     ctx.env.DB
       .prepare(`INSERT INTO submissions (${cols}) VALUES (${placeholders})`)
-      .bind(...values)
+      .bind(...values, sessionId)
       .run();
 
   try {

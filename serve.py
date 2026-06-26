@@ -25,6 +25,7 @@ API key resolution (first hit wins):
 
 import asyncio
 import datetime
+import hashlib
 import json
 import mimetypes
 import os
@@ -43,7 +44,7 @@ HERE = Path(__file__).parent
 D1_DB = "ramble-form-hackathon"
 SUBMIT_FIELDS = (
     "first_name", "last_name", "address", "date_of_birth", "ssn",
-    "household_size", "household_income",
+    "household_size", "household_income", "session_id",
 )
 
 # NYC Planning Labs Geosearch (Pelias) — same service ev-storefront uses. It only
@@ -155,6 +156,69 @@ async def submit_form(request: web.Request) -> web.Response:
 
     print(f"✅ saved submission to D1: {json.dumps(dict(zip(SUBMIT_FIELDS, vals)))}")
     return web.json_response({"ok": True})
+
+
+async def log_events(request: web.Request) -> web.Response:
+    """Persist a batch of client telemetry events to D1 (local-dev mirror of
+    functions/api/log.js). Fail-safe: always 200 so logging never breaks the UI."""
+    wrangler = shutil.which("wrangler") or shutil.which("npx")
+    if wrangler is None:
+        return web.json_response({"ok": False, "error": "wrangler/npx not found"})
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return web.json_response({"ok": False, "error": "bad json"})
+
+    session_id = str(body.get("sessionId", ""))[:64]
+    events = body.get("events") or []
+    if not session_id or not events:
+        return web.json_response({"ok": True})
+
+    # No CF geo locally; hash whatever client IP aiohttp sees.
+    ip = request.headers.get("X-Forwarded-For", request.remote or "")
+    ip_hash = hashlib.sha256(f"local::{ip}".encode()).hexdigest()[:32] if ip else ""
+    submitted = 1 if any(
+        e.get("type") == "submit_saved"
+        or (e.get("type") == "tool_call"
+            and (e.get("data") or {}).get("name") == "submit_form"
+            and (e.get("data") or {}).get("result") == "submitted")
+        for e in events
+    ) else 0
+
+    sid = _sql_str(session_id)
+    n = len(events)
+    stmts = [
+        f"INSERT INTO sessions (session_id, ip_hash, event_count, submitted) "
+        f"VALUES ({sid}, {_sql_str(ip_hash)}, {n}, {submitted}) "
+        f"ON CONFLICT(session_id) DO UPDATE SET last_seen=datetime('now'), "
+        f"event_count=event_count+{n}, submitted=MAX(submitted,{submitted});"
+    ]
+    for e in events:
+        payload = json.dumps(e.get("data") or {})[:20000]
+        seq = int(e.get("seq") or 0)
+        ts = int(e.get("ts") or 0)
+        stmts.append(
+            f"INSERT INTO events (session_id, seq, type, payload, client_ts) VALUES ("
+            f"{sid}, {seq}, {_sql_str(str(e.get('type',''))[:40])}, "
+            f"{_sql_str(payload)}, {ts});"
+        )
+
+    sql_file = HERE / ".log.sql"
+    sql_file.write_text("\n".join(stmts))
+    cmd = ["wrangler"] if wrangler.endswith("wrangler") else ["npx", "--yes", "wrangler"]
+    cmd += ["d1", "execute", D1_DB, "--remote", "--yes", f"--file={sql_file}"]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+    out, _ = await proc.communicate()
+    sql_file.unlink(missing_ok=True)
+    if proc.returncode != 0:
+        tail = (out or b"").decode(errors="replace")[-300:]
+        print(f"⚠️  telemetry write failed:\n{tail}")
+        return web.json_response({"ok": False})
+    print(f"📊 logged {n} event(s) for session {session_id[:8]}")
+    return web.json_response({"ok": True, "stored": n})
 
 
 # The five boroughs, as Pelias labels them in the `borough` field.
@@ -339,6 +403,7 @@ async def main() -> None:
     app = web.Application()
     app.router.add_post("/api/token", get_ephemeral_token)
     app.router.add_post("/api/submit", submit_form)
+    app.router.add_post("/api/log", log_events)
     app.router.add_get("/api/geosearch", geosearch)
     app.router.add_get("/", serve_static)
     app.router.add_get("/{path:.*}", serve_static)
