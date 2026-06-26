@@ -132,7 +132,7 @@ const FIELDS = [
   { key: "phone",         label: "Phone number", q: "What's your phone number?",         hint: "10 digits, or include a country code.", tel: true, ac: "tel" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
-  { key: "preferred_language", label: "Preferred language", q: "What language would you like to get notices in?", hint: "The language you'd like official notices in.", select: ["English", "Spanish", "Chinese", "Bengali", "Russian", "Haitian Creole", "Korean", "Arabic", "Other"], ph: "Select a language…", ac: "off" },
+  { key: "preferred_language", label: "Preferred language", q: "What language would you like to get notices in?", hint: "The language you'd like official notices in.", select: ["English", "Spanish", "Chinese", "Bengali", "Russian", "Haitian Creole", "Korean", "Arabic", "Yiddish", "Other"], ph: "Select a language…", ac: "off" },
 ];
 
 const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly eight fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, phone (a US 10-digit phone number, or an international number with its country code), household_size (how many people live and eat together), household_income (the household's gross monthly income in dollars), and preferred_language (the language the user wants official notices in).
@@ -142,7 +142,7 @@ How to behave:
 - Guide them one field at a time, in order — but if they volunteer several details at once, capture every one immediately.
 - The MOMENT you understand a value, call the set_field tool. Never wait for the user to finish or for confirmation to fill a field — fill it live so they can see it on screen.
 - If the user corrects themselves ("no, it's…", "actually…", "B as in boy"), call set_field again with the corrected value. Always trust the most recent correction.
-- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format phone as digits only with the on-screen formatter doing the prettifying — just give the digits the user ACTUALLY said, e.g. "2125551234"; if they include a country code keep it (a leading 1 for US is fine, and international numbers should start with "+"). NEVER pad, zero-fill, or invent digits to reach ten — if the user has only given part of the number (e.g. "908 770"), call set_field with exactly those digits ("908770") and ask for the rest; do NOT complete it to "9087700000". For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income. For preferred_language, this is a single-select — match what the user says to one of exactly: English, Spanish, Chinese, Bengali, Russian, Haitian Creole, Korean, Arabic; if it's none of those, set "Other".
+- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format phone as digits only with the on-screen formatter doing the prettifying — just give the digits the user ACTUALLY said, e.g. "2125551234"; if they include a country code keep it (a leading 1 for US is fine, and international numbers should start with "+"). NEVER pad, zero-fill, or invent digits to reach ten — if the user has only given part of the number (e.g. "908 770"), call set_field with exactly those digits ("908770") and ask for the rest; do NOT complete it to "9087700000". For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income. For preferred_language, this is a single-select — match what the user says to one of exactly: English, Spanish, Chinese, Bengali, Russian, Haitian Creole, Korean, Arabic, Yiddish; if it's none of those, set "Other".
 - For phone, date_of_birth, and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
 - VALIDATION (enforced): A phone number must be a 10-digit US number (an optional leading 1 country code is fine), or an international number that starts with "+" and its country code. NEVER pad, zero-fill, or invent digits — if the user has only said part of it (e.g. "542" or "908 770"), keep exactly those digits and ask for the remaining ones; do NOT zero-fill it to ten. Only call set_field with the exact digits the user actually said. After you call set_field the tool response tells you whether it was confirmed; if it says not confirmed, tell the user what's wrong (too few digits, needs a country code, etc.) and ask for the missing/correct digits. A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the phone number or date of birth is unconfirmed.
 - For the address: this is a New York City address and a city/borough is mandatory. After you call set_field for "address", the tool response tells you the outcome of NYC geosearch — ACT ON IT:
@@ -151,7 +151,7 @@ How to behave:
   • "ambiguous" without options: ask the user which city or borough they mean, then say it back and re-confirm.
   • "could not confirm": tell them you couldn't find it at all and ask them to repeat the street number, street, and city/borough.
   The address is NOT done until the tool reports "confirmed". Never call submit_form while the address is unconfirmed.
-- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the eight, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
+- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo (bugs, suggestions, reactions). It is never required and must NEVER block or delay submit_form, and you must never PROACTIVELY ask for it before the eight fields are done. BUT if the user volunteers feedback at ANY point in the session — e.g. "I found a bug", "this is broken", "one suggestion…", "that was cool" — capture it immediately: briefly acknowledge it, ask ONE quick follow-up only if it's vague ("what went wrong?"), then return to whatever field you were on. Feedback is CUMULATIVE: a user may give several discrete thoughts across the whole session, and set_field OVERWRITES the field — so every time you save feedback you must pass the COMPLETE running collection (all earlier thoughts PLUS the new one), combined into clear distinct points, never dropping or duplicating earlier ones. You are the one that merges them; keep the full list in mind and re-send the whole thing each time. Separately, once everything is confirmed (or while wrapping up), if they haven't already shared anything you may ask ONCE, casually, "Any thoughts on the demo?" — if they have none or skip it, just submit as normal.
 - Language: speak English by default. If the user consistently speaks to you in another language across a few turns, switch and carry on the whole conversation in that language; switch back if they switch back. Don't change language over a single stray or borrowed word. The field VALUES and their formats above stay the same regardless of the spoken language (e.g. phone is still digits, date is still "Month D, YYYY").
 - Keep every spoken reply short and natural — one or two sentences, no filler.
 - When all eight fields are filled, read back ALL eight values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
@@ -217,6 +217,8 @@ const blobURL = (code) => URL.createObjectURL(new Blob([code], { type: "applicat
 const state = {
   ws: null, connected: false,
   values: {},                 // key -> string
+  feedbackModel: "",          // last complete feedback text the model wrote — lets us
+                              // swap its contribution in place without clobbering typed text
   submitted: false,
   micOn: false,
   capCtx: null, capNode: null, micStream: null,
@@ -234,10 +236,31 @@ const state = {
   gate: {
     floor: 0,       // 0 = stream everything; let Gemini's server-side VAD handle noise
     openUntil: 0,   // ms timestamp: keep streaming until this (hangover tail)
+    aboveRun: 0,    // consecutive frames clearing the floor (sustained-barge-in counter)
   },
+  // --- acoustic echo suppression ---
+  playUntil: 0,       // ms timestamp: assistant audio is playing out the speaker until here
+  echo: { level: 0 }, // learned RMS of the speaker→mic bleed while the assistant speaks
 };
 
 const GATE_HANGOVER_MS = 400; // keep streaming briefly after speech dips
+// --- acoustic echo suppression ---
+// Some phones on loudspeaker have a browser AEC that doesn't cancel our Web Audio
+// (AudioWorklet) playback, so the assistant's own voice bleeds into the mic and gets
+// transcribed as "user" speech. While the speaker is actually emitting audio we learn
+// the level of that bleed and let only input well above it through — a deliberate
+// barge-in still interrupts, but the assistant never loops back on itself. With
+// headphones there's no bleed, the estimate stays ~0, and full duplex is preserved.
+const ECHO_TAIL_MS = 250; // keep suppressing briefly after playback ends (room reverb +
+                          // chunk-scheduling jitter; 120ms was too short and leaked tails)
+const ECHO_EMA = 0.05;    // how fast the echo-level estimate tracks (low = stable)
+const ECHO_MARGIN = 3.0;  // mic RMS must exceed this × the echo level to count as the
+                          // user barging in; anything below is treated as echo → dropped
+// While the assistant is speaking, a real barge-in must SUSTAIN for this many frames
+// before we forward it. A single echo/noise spike that sneaks past the floor isn't
+// enough to crush the reply — only ~190ms of continuous above-floor audio (1024-sample
+// frames @ 16kHz ≈ 64ms each) counts as "the user is actually talking over it."
+const BARGE_FRAMES = 3;
 // Session cost caps. The open Gemini Live WebSocket is the expensive thing, so an
 // abandoned tab shouldn't be able to hold one open and quietly burn the API budget.
 // IDLE closes after a stretch of no conversation (user walked away); HARD is an
@@ -823,9 +846,22 @@ function setField(key, value) {
   // only updates the textarea — no progress/validation/review impact.
   if (key === "feedback") {
     const ta = document.getElementById("feedbackInput");
-    if (ta && ta.value !== value) {
-      ta.value = value;
-      announce("Saved your demo feedback.");
+    if (ta) {
+      // The model re-sends its COMPLETE running collection every time, so we can't just
+      // overwrite — that would wipe anything the user TYPED into the box. Instead swap the
+      // model's *previous* contribution for its new one in place, leaving typed text around
+      // it untouched. Replacement uses a function so '$'-sequences in feedback (e.g. "$5")
+      // aren't treated as regex backreferences.
+      const prev = state.feedbackModel;
+      let next;
+      if (prev && ta.value.includes(prev)) next = ta.value.replace(prev, () => value);
+      else if (ta.value.trim()) next = ta.value.replace(/\s*$/, "") + "\n" + value; // typed text present → append below
+      else next = value;
+      state.feedbackModel = value;
+      if (ta.value !== next) {
+        ta.value = next;
+        announce("Saved your demo feedback.");
+      }
     }
     return;
   }
@@ -1331,14 +1367,41 @@ async function startMic() {
     let sum = 0; for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
     const rms = Math.sqrt(sum / f32.length);
 
-    // --- noise gate: drop frames quieter than the (user-set) floor ---
     const g = state.gate;
     const now = performance.now();
-    if (g.floor <= 0 || rms > g.floor) g.openUntil = now + GATE_HANGOVER_MS;
+
+    // --- echo floor: while the speaker is actually emitting (and a short reverb tail
+    // after), the mic is mostly hearing our own playback. Learn that bleed level and
+    // require input to beat it by ECHO_MARGIN to pass. Seed fast on the first frame,
+    // then only learn from sub-threshold frames so a real barge-in spike doesn't drag
+    // the estimate up and start gating the user out. ---
+    const ec = state.echo;
+    const echoing = now < state.playUntil + ECHO_TAIL_MS;
+    if (echoing) {
+      if (ec.level <= 0) ec.level = rms;                              // seed
+      else if (rms < ec.level * ECHO_MARGIN) ec.level += ECHO_EMA * (rms - ec.level);
+    } else {
+      ec.level = 0; // assistant silent → nothing to suppress (full duplex resumes)
+    }
+    const echoFloor = echoing ? ec.level * ECHO_MARGIN : 0;
+
+    // --- noise gate: drop frames below the user-set floor or the echo floor ---
+    const floor = Math.max(g.floor, echoFloor);
+    const above = floor <= 0 || rms > floor;     // this frame clears the floor
+    if (above) g.openUntil = now + GATE_HANGOVER_MS;
+    g.aboveRun = above ? g.aboveRun + 1 : 0;     // consecutive clearing frames
     const open = now < g.openUntil;
     setLevel(rms, open); // always show the real level so the user can tune the slider
 
-    if (!open) return; // gate closed → ignore background noise entirely
+    if (!open) return; // gate closed → ignore background noise / our own echo entirely
+
+    // While FormSpeak is speaking, only a SUSTAINED barge-in reaches the server. A lone
+    // echo/noise spike that clears the floor isn't enough — without this, the model hears
+    // its own bleed (or a stray sound) and interrupts itself, crushing the reply. A real
+    // barge-in holds above the floor for BARGE_FRAMES (~190ms) and still cuts it off; the
+    // moment it does, the server sends `interrupted`, phase flips to listening, and the
+    // rest of the utterance flows normally (this guard no longer applies).
+    if (state.phase === "speaking" && g.aboveRun < BARGE_FRAMES) return;
 
     // PCM16 → base64
     const pcm = new Int16Array(f32.length);
@@ -1389,8 +1452,16 @@ async function playAudio(base64) {
   const i16 = new Int16Array(bytes.buffer), f32 = new Float32Array(i16.length);
   for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
   state.playNode.port.postMessage(f32);
+  // Mark how long the speaker will keep emitting so the mic gate can suppress the echo
+  // of this playback (see capture handler). Chunks play back-to-back, so extend the tail
+  // from whichever is later — the previous end or now.
+  const durMs = (f32.length / 24000) * 1000;
+  state.playUntil = Math.max(state.playUntil, performance.now()) + durMs;
 }
-function stopPlayback() { if (state.playNode) state.playNode.port.postMessage("stop"); }
+function stopPlayback() {
+  if (state.playNode) state.playNode.port.postMessage("stop");
+  state.playUntil = 0; // speaker silenced (barge-in / interrupt) → stop gating immediately
+}
 
 function b64(buf) {
   const bytes = new Uint8Array(buf); let s = "";
