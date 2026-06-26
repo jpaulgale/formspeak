@@ -117,14 +117,14 @@ const FIELDS = [
   // app-specific fields intentionally opt out of autofill with "off".
   { key: "first_name",    label: "First name", q: "What's your first name?",            hint: "Spell it out if necessary.", ac: "given-name" },
   { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell it out if necessary.", ac: "family-name" },
-  { key: "address",       label: "Address",    q: "What's your home address?",          hint: "Street, city, state and ZIP.", ac: "street-address" },
+  { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street, borough, and ZIP.", ac: "street-address" },
   { key: "date_of_birth", label: "Date of birth", q: "What's your date of birth?",      hint: "Month, day and year.", ac: "bday" },
   { key: "ssn",           label: "Social Security number", q: "And your Social Security number?", hint: "Nine digits. We'll read it back.", sensitive: true, ac: "off" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
 ];
 
-const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (full street address), date_of_birth, ssn (US Social Security number), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
+const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, ssn (US Social Security number), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
 
 How to behave:
 - Greet the user in ONE short sentence, then ask for the first field.
@@ -154,7 +154,7 @@ const TOOLS = [{
         type: "object",
         properties: {
           field: { type: "string", enum: FIELDS.map(f => f.key).concat(["feedback"]), description: "Which field to fill. 'feedback' is the optional demo-feedback field." },
-          value: { type: "string", description: "The normalized value to display in that field." },
+          value: { type: "string", description: "The normalized value to display in that field. For 'address', this MUST be a New York City address in one of the five boroughs (Manhattan, Brooklyn, Queens, the Bronx, Staten Island) — never accept or set an address outside NYC." },
         },
         required: ["field", "value"],
       },
