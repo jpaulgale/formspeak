@@ -341,7 +341,22 @@ async function handleServerMessage(e, onSetup) {
   const text = e.data instanceof Blob ? await e.data.text() : e.data;
   let msg; try { msg = JSON.parse(text); } catch { return; }
 
-  if (msg.setupComplete) { setConn(true); onSetup && onSetup(); return; }
+  if (msg.setupComplete) {
+    setConn(true);
+    // The Live API never speaks first — it only responds to a turn of input. Send a
+    // neutral opening turn so the model delivers its greeting (or, on a reconnect, the
+    // "welcome back" line from resumeContext()) instead of sitting silently on the
+    // VAD waiting for the user to talk first. Fires on every session open.
+    if (state.ws && state.ws.readyState === WebSocket.OPEN)
+      state.ws.send(JSON.stringify({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text: "Hi" }] }],
+          turnComplete: true,
+        },
+      }));
+    onSetup && onSetup();
+    return;
+  }
 
   if (msg.toolCall) {
     const calls = msg.toolCall.functionCalls || [];
