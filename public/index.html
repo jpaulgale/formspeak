@@ -119,29 +119,30 @@ const FIELDS = [
   { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell it out if necessary.", ac: "family-name" },
   { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street, borough, and ZIP.", ac: "street-address" },
   { key: "date_of_birth", label: "Date of birth", q: "What's your date of birth?",      hint: "Month, day and year.", ac: "bday" },
+  { key: "phone",         label: "Phone number", q: "What's your phone number?",         hint: "10 digits, or include a country code.", tel: true, ac: "tel" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
 ];
 
-const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly six fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
+const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, phone (a US 10-digit phone number, or an international number with its country code), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
 
 How to behave:
 - Greet the user in ONE short sentence, then ask for the first field.
 - Guide them one field at a time, in order — but if they volunteer several details at once, capture every one immediately.
 - The MOMENT you understand a value, call the set_field tool. Never wait for the user to finish or for confirmation to fill a field — fill it live so they can see it on screen.
 - If the user corrects themselves ("no, it's…", "actually…", "B as in boy"), call set_field again with the corrected value. Always trust the most recent correction.
-- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income.
-- For date_of_birth and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
-- VALIDATION (enforced): A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the date of birth is unconfirmed.
+- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format phone as digits only with the on-screen formatter doing the prettifying — just give the digits the user said, e.g. "2125551234"; if they include a country code keep it (a leading 1 for US is fine, and international numbers should start with "+"). For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income.
+- For phone, date_of_birth, and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
+- VALIDATION (enforced): A phone number must be a 10-digit US number (an optional leading 1 country code is fine), or an international number that starts with "+" and its country code. After you call set_field the tool response tells you whether it was confirmed; if not, tell the user what's wrong (too few digits, needs a country code, etc.) and ask them to repeat it. A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the phone number or date of birth is unconfirmed.
 - For the address: this is a New York City address and a city/borough is mandatory. After you call set_field for "address", the tool response tells you the outcome of NYC geosearch — ACT ON IT:
   • "confirmed": read the exact confirmed address back to the user, INCLUDING the borough (Manhattan, Brooklyn, Queens, the Bronx, or Staten Island), and ask them to confirm it.
   • "ambiguous" with on-screen options: it couldn't be auto-confirmed, so up to four candidate addresses are now shown on screen as lettered buttons (A, B, C, D). Briefly read the options out loud (e.g. "Is that A, Manhattan, or B, Brooklyn?") and tell the user they can ${tap} a button or just say the letter. When they pick, call set_field for the address with that option's full address. Do NOT guess for them. If none is right, ask them to repeat the street number, street, and borough.
   • "ambiguous" without options: ask the user which city or borough they mean, then say it back and re-confirm.
   • "could not confirm": tell them you couldn't find it at all and ask them to repeat the street number, street, and city/borough.
   The address is NOT done until the tool reports "confirmed". Never call submit_form while the address is unconfirmed.
-- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the six, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
+- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the seven, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
 - Keep every spoken reply short and natural — one or two sentences, no filler.
-- When all six fields are filled, read back ALL six values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
+- When all seven fields are filled, read back ALL seven values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
 - NEVER call submit_form until the user has verbally confirmed everything.`;
 
 const TOOLS = [{
@@ -431,6 +432,21 @@ async function dispatchTool(name, args) {
       }
       return "Could not find that address at all. A city or borough is REQUIRED — ask the user to repeat the street number, street, and city/borough, then confirm again.";
     }
+    if (f.key === "phone") {
+      const pi = phoneInfo(args.value);
+      if (!pi.ok) {
+        if (pi.reason === "short")
+          return "The phone number is NOT confirmed: only " + pi.n + " digit" + (pi.n === 1 ? "" : "s") +
+            " so far. A US number needs 10 digits (a leading 1 country code is fine). Ask the user for the rest of the digits.";
+        if (pi.reason === "needsplus")
+          return "The phone number is NOT confirmed: more digits than a US number but no country code. " +
+            "If it's international, set it again starting with '+' and the country code; otherwise ask the user to repeat just their 10-digit number.";
+        if (pi.reason === "long")
+          return "The phone number is NOT confirmed: too many digits. Ask the user to repeat their number.";
+        return "The phone number is NOT confirmed. Ask the user to repeat their phone number.";
+      }
+      return "Phone number confirmed (" + pi.n + " digits). Read it back so the user can catch any mistake.";
+    }
     if (f.key === "date_of_birth") {
       // Not confirmed unless the year is in [1900, 2026].
       const info = dobInfo(args.value);
@@ -471,6 +487,8 @@ async function dispatchTool(name, args) {
     const problems = [];
     if (state.values.address && state.addrStatus !== "ok")
       problems.push("the address is not confirmed (it needs a valid NYC city/borough)");
+    if (state.values.phone && !phoneConfirmed(state.values.phone))
+      problems.push("the phone number is not confirmed (10 digits, or a country code with +)");
     if (state.values.date_of_birth && !dobInfo(state.values.date_of_birth).ok)
       problems.push("the date of birth is not confirmed (the year must be between 1900 and 2026)");
     if (state.values.household_size && !hhSizeInfo(state.values.household_size).ok)
@@ -556,26 +574,61 @@ function scheduleAddrVerify(value) {
 /* ============================================================
    Form rendering
    ============================================================ */
-function maskSSN(v) {
-  const digits = (v || "").replace(/\D/g, "");
-  if (state.ssnVisible || digits.length < 4) return v;
-  return "•••-••-" + digits.slice(-4);
-}
-
 // --- Deterministic field validation (mirrors the address-confirmation gate) ---
-// An SSN is only "confirmed" once it's a structurally valid nine-digit number.
-// This also rejects the model's "zero-padding" of a partial number (e.g. the user
-// says "542" and it formats "542-00-0000"): a real SSN never has a group of 00 or
-// a serial of 0000, and the area can't be 000 / 666 / 900-999.
-function ssnDigits(v) { return (v || "").replace(/\D/g, ""); }
-function ssnInfo(v) {
-  // Demo: accept any exactly-9-digit number (so fake SSNs work). Only length matters.
-  const d = ssnDigits(v);
-  if (d.length < 9) return { ok: false, reason: "short", n: d.length };
-  if (d.length > 9) return { ok: false, reason: "long", n: d.length };
-  return { ok: true };
+// A phone number is "confirmed" once its digit count is valid: a US number is 10
+// digits (an optional leading "1" country code — e.g. "1 212 555 1234" → 11 digits
+// — is fine), or an international number that starts with "+" and carries 8–15
+// digits (E.164). Formatting is cosmetic; only the digit count decides validity.
+function phoneDigits(v) { return (v || "").replace(/\D/g, ""); }
+function phoneInfo(v) {
+  const raw = (v || "").trim();
+  const plus = raw.startsWith("+");
+  const d = phoneDigits(raw);
+  if (!d.length) return { ok: false, reason: "empty", n: 0 };
+  if (plus) {
+    if (d.length < 8) return { ok: false, reason: "short", n: d.length };
+    if (d.length > 15) return { ok: false, reason: "long", n: d.length };
+    return { ok: true, intl: true, n: d.length };
+  }
+  if (d.length === 10) return { ok: true, n: 10 };                 // US national
+  if (d.length === 11 && d[0] === "1") return { ok: true, n: 11 }; // 1 + 10 → US
+  if (d.length < 10) return { ok: false, reason: "short", n: d.length };
+  return { ok: false, reason: "needsplus", n: d.length };          // 11+ and not 1-led
 }
-function ssnConfirmed(v) { return ssnInfo(v).ok; }
+function phoneConfirmed(v) { return phoneInfo(v).ok; }
+function phoneReason(r) {
+  return r === "short" ? "needs at least 10 digits"
+    : r === "long" ? "too many digits"
+    : r === "needsplus" ? "add + and a country code"
+    : "enter a phone number";
+}
+// Cosmetic as-you-type / on-set formatter. A US number → (212) 555-1234 (with a
+// "+1 " prefix when a country code is present); international → "+" w/ light grouping.
+function formatUSPhone(d, withCC) {
+  let out;
+  if (d.length > 6) out = "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
+  else if (d.length > 3) out = "(" + d.slice(0, 3) + ") " + d.slice(3);
+  else if (d.length > 0) out = "(" + d;
+  else out = "";
+  return withCC ? ("+1 " + out).trimEnd() : out;
+}
+function groupIntlPhone(d) {
+  if (d.length <= 2) return d;
+  const rest = d.slice(2);
+  return d.slice(0, 2) + (rest ? " " + (rest.match(/.{1,3}/g) || []).join(" ") : "");
+}
+function formatPhone(v) {
+  const raw = (v || "").trim();
+  const plus = raw.startsWith("+");
+  const d = phoneDigits(raw);
+  if (!plus) {
+    if (d.length <= 10) return formatUSPhone(d, false);
+    if (d.length === 11 && d[0] === "1") return formatUSPhone(d.slice(1), true);
+    return "+" + groupIntlPhone(d);
+  }
+  if (d[0] === "1" && d.length <= 11) return formatUSPhone(d.slice(1), true);
+  return "+" + groupIntlPhone(d);
+}
 
 // A date of birth is only valid if it resolves to a year in [1900, 2026].
 function dobInfo(v) {
@@ -653,6 +706,7 @@ function incomeInfo(v) {
 function isFilled(f) {
   if (!state.values[f.key]) return false;
   if (f.key === "address") return state.addrStatus === "ok";
+  if (f.key === "phone") return phoneConfirmed(state.values.phone);            // 10 digits / +country code
   if (f.key === "date_of_birth") return dobInfo(state.values.date_of_birth).ok; // 1900–2026
   if (f.key === "household_size") return hhSizeInfo(state.values.household_size).ok;       // 1–8+
   if (f.key === "household_income") return incomeInfo(state.values.household_income).ok;   // a dollar amount
@@ -675,6 +729,9 @@ function setField(key, value) {
     }
     return;
   }
+  // Phone: normalize whatever the model emits to our display format so the voice
+  // and typing paths show the number identically.
+  if (key === "phone") value = formatPhone(value);
   const changed = state.values[key] !== value;
   state.values[key] = value;
   renderProgress();
@@ -750,7 +807,7 @@ function renderCard() {
     '<div class="qtext">' + f.q + "</div>" +
     (f.hint ? '<div class="qhint">' + f.hint + "</div>" : "") +
     (val
-      ? '<div class="answer">' + escapeHTML(f.sensitive ? maskSSN(val) : val) + "</div>"
+      ? '<div class="answer">' + escapeHTML(val) + "</div>"
       : emptyAnswerHTML()) +
     addrLine;
   bumpAnim(card);
@@ -796,6 +853,10 @@ function addrInlineMsg() {
 function fieldBadge(f, v) {
   if (!v) return "";
   if (f.key === "address") return addrBadge();
+  if (f.key === "phone") {
+    const pi = phoneInfo(v);
+    return pi.ok ? '<span class="ff-check">✓</span>' : '<span class="vbadge warn">⚠ ' + phoneReason(pi.reason) + "</span>";
+  }
   if (f.key === "date_of_birth") {
     const info = dobInfo(v);
     return info.ok ? '<span class="ff-check">✓</span>' : '<span class="vbadge warn">⚠ ' + dobReasonText(info.reason) + "</span>";
@@ -810,11 +871,11 @@ function fieldBadge(f, v) {
 function rowHTML(f, plain) {
   const v = state.values[f.key];
   const filled = !!v;
-  const shown = v ? (f.sensitive ? maskSSN(v) : v) : "—";
-  const eye = f.sensitive && v ? '<button type="button" class="eye" data-eye="1" aria-label="' + (state.ssnVisible ? "Hide" : "Show") + ' Social Security number">' + (state.ssnVisible ? "hide" : "show") + "</button>" : "";
+  const shown = v || "—";
+  const eye = "";
   const isAddr = f.key === "address";
   // Show a confirmation badge for the validated fields.
-  const validated = isAddr || f.key === "date_of_birth" || f.key === "household_size" || f.key === "household_income";
+  const validated = isAddr || f.key === "phone" || f.key === "date_of_birth" || f.key === "household_size" || f.key === "household_income";
   const badge = v && validated ? fieldBadge(f, v) : "";
   return (
     '<div class="row ' + (filled ? "filled" : "") + (isAddr ? " addr" : "") + '" data-key="' + f.key + '">' +
@@ -850,8 +911,9 @@ function buildForm() {
         ? '<select class="ff-input ff-select nyc-select"' + ac + '><option value="">' + escapeHTML(f.ph || "Select…") + "</option>" +
           f.select.map((o) => '<option value="' + escapeHTML(o) + '">' + escapeHTML(o) + "</option>").join("") +
           "</select>"
-        : '<input class="ff-input nyc-textinput" type="' + (f.sensitive ? "password" : "text") + '"' + ac +
-          (f.sensitive ? ' inputmode="numeric" placeholder="XXX-XX-XXXX"' : "") + " />";
+        : f.tel
+        ? '<input class="ff-input nyc-textinput" type="tel" inputmode="tel" placeholder="(212) 555-1234"' + ac + " />"
+        : '<input class="ff-input nyc-textinput" type="text"' + ac + " />";
       // The eye toggle gets a real accessible name; the visual validation badge is
       // aria-hidden because screen readers receive the same info via #srAnnounce / #formHint.
       const eye = f.sensitive ? '<button type="button" class="ff-eye" data-eye aria-label="Show Social Security number">show</button>' : "";
@@ -875,8 +937,20 @@ function buildForm() {
   FIELDS.forEach((f) => {
     const input = form.querySelector('.ff[data-key="' + f.key + '"] .ff-input');
     const onEdit = () => {
-      // The date picker speaks ISO; store the readable "Month D, YYYY" everything else uses.
-      state.values[f.key] = f.key === "date_of_birth" ? isoToDOB(input.value) : input.value;
+      if (f.tel) {
+        // Format as the user types, then restore the caret to the same digit offset
+        // so separators we insert don't make it jump to the end.
+        const before = (input.value.slice(0, input.selectionStart || 0).match(/\d/g) || []).length;
+        const formatted = formatPhone(input.value);
+        input.value = formatted;
+        let pos = 0, seen = 0;
+        while (pos < formatted.length && seen < before) { if (/\d/.test(formatted[pos])) seen++; pos++; }
+        try { input.setSelectionRange(pos, pos); } catch {}
+        state.values[f.key] = formatted;
+      } else {
+        // The date picker speaks ISO; store the readable "Month D, YYYY" everything else uses.
+        state.values[f.key] = f.key === "date_of_birth" ? isoToDOB(input.value) : input.value;
+      }
       if (f.key === "address") {
         state.addrStatus = "idle"; // manual edit clears prior geosearch badge…
         scheduleAddrVerify(input.value); // …then re-confirm the typed address (needs a city/borough)
@@ -948,6 +1022,11 @@ function collectErrors() {
         out.push({ key: f.key, label: f.label, msg: state.addrStatus === "checking"
           ? "Still confirming the address — give it a moment."
           : "We couldn't confirm that address. Include a valid city or NYC borough." });
+      return;
+    }
+    if (f.key === "phone") {
+      if (!v) out.push({ key: f.key, label: f.label, msg: "Enter your phone number." });
+      else if (!phoneConfirmed(v)) out.push({ key: f.key, label: f.label, msg: "Enter a valid phone number — 10 digits, or a country code starting with +." });
       return;
     }
     if (f.key === "date_of_birth") {

@@ -2,13 +2,13 @@
 // Uses the DB binding (parameterized insert) instead of the Python serve.py's
 // wrangler-subprocess hack, so PII like O'Brien is handled safely.
 const FIELDS = [
-  "first_name", "last_name", "address", "date_of_birth",
+  "first_name", "last_name", "address", "date_of_birth", "phone",
   "household_size", "household_income", "feedback",
 ];
 
 const LABELS = {
   first_name: "First name", last_name: "Last name", address: "Address",
-  date_of_birth: "DOB", household_size: "Household size",
+  date_of_birth: "DOB", phone: "Phone", household_size: "Household size",
   household_income: "Monthly income", feedback: "Feedback",
 };
 
@@ -54,12 +54,26 @@ export const onRequestPost = async (ctx) => {
   const values = FIELDS.map((k) => String(data?.[k] ?? ""));
   const cols = FIELDS.join(", ");
   const placeholders = FIELDS.map(() => "?").join(", ");
-
-  try {
-    await ctx.env.DB
+  const insert = () =>
+    ctx.env.DB
       .prepare(`INSERT INTO submissions (${cols}) VALUES (${placeholders})`)
       .bind(...values)
       .run();
+
+  try {
+    try {
+      await insert();
+    } catch (e) {
+      // Self-healing migration: if the `phone` column hasn't been added to this
+      // database yet, add it via the (full-access) DB binding and retry once. Lets
+      // a fresh deploy persist phone numbers without a separate migration step.
+      if (/no column named phone|has no column named phone/i.test(String(e?.message || e))) {
+        try { await ctx.env.DB.prepare("ALTER TABLE submissions ADD COLUMN phone TEXT NOT NULL DEFAULT ''").run(); } catch { /* column raced in */ }
+        await insert();
+      } else {
+        throw e;
+      }
+    }
     // Notify after the write succeeds; waitUntil lets the response return
     // immediately while the ping finishes in the background.
     ctx.waitUntil(notifyTelegram(ctx.env, data));
