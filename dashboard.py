@@ -23,40 +23,54 @@ DB = "ramble-form-hackathon"
 PORT = 8787
 
 
-def query(sql: str) -> list[dict]:
+def query(*sqls: str) -> list[list[dict]]:
+    # Each remote `wrangler` call is ~2s of Node-startup + network, dwarfing the query
+    # itself. So we batch every statement we need into ONE invocation (wrangler returns
+    # one result set per statement, in order) and pull the whole DB up front — see _CACHE.
     out = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", sql],
+        ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", " ".join(sqls)],
         capture_output=True, text=True,
     )
     if out.returncode != 0:
         raise RuntimeError(out.stderr or out.stdout)
-    return json.loads(out.stdout)[0]["results"]
+    return [rs["results"] for rs in json.loads(out.stdout)]
 
 
-def sessions() -> list[dict]:
-    # Skip single-event sessions: a lone session_start (or a bot's one-off hit) with no
-    # real activity is just noise in the list, never a conversation worth replaying.
-    return query(
+# In-memory mirror of the remote D1. The dataset is tiny (dozens of sessions, ~hundreds
+# of events), so we fetch it all in a single round trip on startup and serve every request
+# from RAM — instant clicks, no per-request wrangler spawn. /api/refresh re-pulls.
+_CACHE: dict = {"sessions_by_id": {}, "events_by_id": {}}
+
+
+def refresh() -> None:
+    sess_rows, event_rows = query(
         "SELECT session_id, submitted, event_count, country, region, city, colo, as_org, "
-        "substr(ip_hash,1,10) AS ip_hash, started_at, last_seen "
-        "FROM sessions WHERE event_count > 1 ORDER BY last_seen DESC LIMIT 500;"
+        "substr(ip_hash,1,10) AS ip_hash, user_agent, started_at, last_seen "
+        "FROM sessions ORDER BY last_seen DESC;",
+        "SELECT session_id, seq, type, payload, client_ts FROM events ORDER BY session_id, seq ASC;",
     )
-
-
-def session_detail(sid: str) -> dict:
-    safe = sid.replace("'", "''")
-    sess = query(f"SELECT * FROM sessions WHERE session_id = '{safe}';")
-    events = query(
-        f"SELECT seq, type, payload, client_ts FROM events "
-        f"WHERE session_id = '{safe}' ORDER BY seq ASC;"
-    )
-    for e in events:
+    events_by_id: dict[str, list[dict]] = {}
+    for e in event_rows:
         try:
             e["data"] = json.loads(e.get("payload") or "{}")
         except json.JSONDecodeError:
             e["data"] = {}
         e.pop("payload", None)
-    return {"session": sess[0] if sess else {"session_id": sid}, "events": events}
+        events_by_id.setdefault(e["session_id"], []).append(e)
+    _CACHE["sessions_by_id"] = {s["session_id"]: s for s in sess_rows}
+    _CACHE["events_by_id"] = events_by_id
+
+
+def sessions() -> list[dict]:
+    # Skip single-event sessions: a lone session_start (or a bot's one-off hit) with no
+    # real activity is just noise in the list, never a conversation worth replaying.
+    rows = [s for s in _CACHE["sessions_by_id"].values() if (s.get("event_count") or 0) > 1]
+    return rows[:500]  # already sorted by last_seen DESC at fetch time
+
+
+def session_detail(sid: str) -> dict:
+    sess = _CACHE["sessions_by_id"].get(sid, {"session_id": sid})
+    return {"session": sess, "events": _CACHE["events_by_id"].get(sid, [])}
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -137,7 +151,8 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <aside>
     <div class="head">
-      <div class="brand"><span class="dot"></span>FormSpeak telemetry</div>
+      <div class="brand"><span class="dot"></span>FormSpeak telemetry
+        <button class="refresh" id="reload" style="margin-left:auto" title="Re-pull from D1">↻</button></div>
       <div class="sub" id="count">loading…</div>
       <div class="filters">
         <button data-f="all" class="on">All</button>
@@ -162,9 +177,11 @@ let ALL=[], FILTER="all", SEL=null;
 const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const ago=t=>t?String(t).replace("T"," ").slice(5,16):"";
 
-async function load(){
-  const r=await fetch("/api/sessions"); ALL=await r.json(); render();
+async function load(url="/api/sessions"){
+  $("#count").textContent="loading…";
+  const r=await fetch(url); ALL=await r.json(); render();
 }
+$("#reload").onclick=()=>load("/api/refresh");
 function render(){
   const rows=ALL.filter(s=> FILTER==="all"?1: FILTER==="submitted"?s.submitted:!s.submitted);
   const done=ALL.filter(s=>s.submitted).length;
@@ -288,6 +305,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, INDEX_HTML, "text/html; charset=utf-8")
             if path == "/api/sessions":
                 return self._send(200, json.dumps(sessions()))
+            if path == "/api/refresh":
+                refresh()
+                return self._send(200, json.dumps(sessions()))
             if path.startswith("/api/session/"):
                 sid = path.rsplit("/", 1)[-1]
                 return self._send(200, json.dumps(session_detail(sid)))
@@ -298,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     try:
-        sessions()  # fail fast if wrangler/auth is broken
+        refresh()  # one round trip; fail fast if wrangler/auth is broken
     except Exception as e:  # noqa: BLE001
         sys.exit(f"Couldn't read D1 via wrangler:\n{e}")
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
