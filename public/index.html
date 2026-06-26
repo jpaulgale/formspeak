@@ -788,7 +788,7 @@ function bumpAnim(card) {
 
 function addrBadge() {
   if (state.addrStatus === "checking") return '<span class="vbadge checking"><span class="spin sm"></span>confirming…</span>';
-  if (state.addrStatus === "ok") return '<span class="vbadge ok">✓ Resolved</span>';
+  if (state.addrStatus === "ok") return '<span class="vbadge ok">✓ Verified</span>';
   if (state.addrStatus === "none") return '<span class="vbadge warn">⚠ unconfirmed</span>';
   return "";
 }
@@ -801,7 +801,7 @@ function addrInlineMsg() {
   // `html` values here are fixed, safe strings (no user input) — fine to embed a link.
   const map = {
     checking: { mod: "info",    icon: '<span class="spin sm"></span>', html: "Checking this address with NYC GeoSearch…" },
-    ok:       { mod: "success", icon: "✓", html: 'Resolved using <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' },
+    ok:       { mod: "success", icon: "✓", html: 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' },
     none:     { mod: "error",   icon: "⚠", html: "We couldn't confirm this address. Add a valid city or NYC borough." },
   };
   const m = map[state.addrStatus];
