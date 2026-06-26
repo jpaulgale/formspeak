@@ -25,8 +25,18 @@
 <!-- NYC Digital Design System typefaces: Clash Grotesk (display) + Noto Sans (body) -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@500,600&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+<!-- Fonts load NON-render-blocking (media=print → 'all' on load). The slow external font
+     CSS used to block the inline init script that builds the form, so the browser painted
+     an empty form and then filled it — a visible load-time jitter. Off the critical path,
+     the script runs against local styles.css and builds the form before first paint.
+     display=optional stops a late-arriving font from swapping in and reflowing the page. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=optional" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@500,600&display=optional" media="print" onload="this.media='all'" />
+<noscript>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=optional" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@500,600&display=optional" />
+</noscript>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -142,6 +152,7 @@ How to behave:
   • "could not confirm": tell them you couldn't find it at all and ask them to repeat the street number, street, and city/borough.
   The address is NOT done until the tool reports "confirmed". Never call submit_form while the address is unconfirmed.
 - There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the eight, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
+- Language: speak English by default. If the user consistently speaks to you in another language across a few turns, switch and carry on the whole conversation in that language; switch back if they switch back. Don't change language over a single stray or borrowed word. The field VALUES and their formats above stay the same regardless of the spoken language (e.g. phone is still digits, date is still "Month D, YYYY").
 - Keep every spoken reply short and natural — one or two sentences, no filler.
 - When all eight fields are filled, read back ALL eight values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
 - NEVER call submit_form until the user has verbally confirmed everything.`;
@@ -214,6 +225,7 @@ const state = {
   ssnVisible: false,
   phase: "listening",   // listening | thinking | speaking — drives the dock status
   thinkTimer: null,
+  idleTimer: null, hardTimer: null, // session cost caps (idle silence + hard backstop)
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
   addrSeq: 0,
@@ -226,6 +238,14 @@ const state = {
 };
 
 const GATE_HANGOVER_MS = 400; // keep streaming briefly after speech dips
+// Session cost caps. The open Gemini Live WebSocket is the expensive thing, so an
+// abandoned tab shouldn't be able to hold one open and quietly burn the API budget.
+// IDLE closes after a stretch of no conversation (user walked away); HARD is an
+// absolute backstop for a session that stays active far longer than any real form
+// takes. Either close is graceful: the mic re-arms and a tap resumes (answers are
+// kept, and resumeContext() re-greets the user where they left off).
+const IDLE_LIMIT_MS = 90 * 1000;     // 90s of no speech (either side) → pause
+const HARD_LIMIT_MS = 10 * 60 * 1000; // 10 min wall-clock → pause no matter what
 const $ = (id) => document.getElementById(id);
 
 /* ============================================================
@@ -286,8 +306,9 @@ const fieldsSnapshot = () => ({
    ============================================================ */
 async function getToken() {
   const r = await fetch("/api/token", { method: "POST" });
-  if (!r.ok) throw new Error("token request failed (" + r.status + ")");
-  const j = await r.json();
+  const j = await r.json().catch(() => ({}));
+  // Prefer the server's message (e.g. the rate-limit notice) over a bare status code.
+  if (!r.ok) throw new Error(j.error || ("token request failed (" + r.status + ")"));
   if (j.error) throw new Error(j.error);
   return j.token;
 }
@@ -446,15 +467,15 @@ async function handleServerMessage(e, onSetup) {
   if (sc.inputTranscription && sc.inputTranscription.text) {
     state.userBuf += sc.inputTranscription.text; renderCaption();
     // user is talking → back to listening, then arm the "thinking" timer for the pause after
-    setPhase("listening"); scheduleThinking();
+    setPhase("listening"); scheduleThinking(); bumpIdle();
   }
   if (sc.outputTranscription && sc.outputTranscription.text) {
     state.asstBuf += sc.outputTranscription.text; renderCaption();
-    setPhase("speaking");
+    setPhase("speaking"); bumpIdle();
   }
   if (sc.interrupted) { stopPlayback(); setPhase("listening"); }
   if (sc.turnComplete) {
-    const u = state.userBuf.trim(), a = state.asstBuf.trim();
+    const u = denoiseTranscript(state.userBuf).trim(), a = denoiseTranscript(state.asstBuf).trim();
     if (u) state.lastUser = u;
     if (a) state.lastAsst = a;
     if (u || a) logEvent("turn", { user: u, asst: a });
@@ -893,10 +914,16 @@ function renderCard() {
 }
 
 let lastCardKey = null;
+let cardAnimReady = false; // Suppress the slide-in on the very first paint: it otherwise
+                           // fires alone, after the page is already drawn, and reads as a
+                           // glitch. Field-to-field transitions still animate normally.
 function bumpAnim(card) {
   const ai = activeIndex();
   const key = ai === -1 ? "review" : FIELDS[ai].key;
-  if (key !== lastCardKey) { card.classList.remove("anim"); void card.offsetWidth; card.classList.add("anim"); lastCardKey = key; }
+  if (key === lastCardKey) return;
+  lastCardKey = key;
+  if (!cardAnimReady) { cardAnimReady = true; return; } // first render → appear in place
+  card.classList.remove("anim"); void card.offsetWidth; card.classList.add("anim");
 }
 
 function addrBadge() {
@@ -1226,9 +1253,30 @@ function bindEyes(scope) {
     }));
 }
 
+// Gemini's live audio ASR sometimes hallucinates a stray non-Latin glyph (most
+// often a CJK/Hangul character) into an otherwise-English transcript — a known
+// artifact on silence or low-level noise. Drop those isolated foreign characters
+// so the caption and logs stay clean. BUT if the user is genuinely speaking
+// another language — a sustained run of foreign script — leave the text untouched
+// so the transcript follows whatever language they're actually using. Accented
+// Latin (é, ñ, ü …) is NOT in this range, so Spanish/Haitian Creole survive intact.
+const FOREIGN_RE = /[Ѐ-ԯ֐-׿؀-ۿऀ-ॿঀ-৿฀-๿　-ヿ㐀-䶿一-鿿가-힯豈-﫿＀-￯]/g;
+function denoiseTranscript(s) {
+  if (!s) return s;
+  const foreign = (s.match(FOREIGN_RE) || []).length;
+  if (!foreign) return s;
+  const latin = (s.match(/[A-Za-z]/g) || []).length;
+  // Sustained foreign script (a real other-language utterance) → keep as-is.
+  // A hallucinated glyph is one or two isolated characters; a genuine phrase is
+  // either several characters or clearly outweighs any Latin in the line.
+  if (foreign >= 5 || (foreign >= 3 && foreign > latin)) return s;
+  // Otherwise: stray noise. Strip it and tidy the gap it leaves behind.
+  return s.replace(FOREIGN_RE, "").replace(/\s{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+}
+
 function renderCaption() {
-  const u = state.userBuf || state.lastUser || "";
-  const a = state.asstBuf || state.lastAsst || "";
+  const u = denoiseTranscript(state.userBuf || state.lastUser || "");
+  const a = denoiseTranscript(state.asstBuf || state.lastAsst || "");
   $("caption").innerHTML =
     (a ? "<b>FormSpeak:</b> " + escapeHTML(a) + "<br>" : "") +
     (u ? '<span class="you">You: ' + escapeHTML(u) + "</span>" : "");
@@ -1356,6 +1404,40 @@ function b64(buf) {
 function setConn(live) {
   state.connected = live; // connection indicator removed from the top; state still drives the mic flow
 }
+
+// --- session cost caps -------------------------------------------------------
+// armSessionLimits() starts both timers when a session opens; bumpIdle() resets
+// the silence timer on any conversational activity (user OR assistant speech).
+function bumpIdle() {
+  clearTimeout(state.idleTimer);
+  if (state.submitted) return;
+  state.idleTimer = setTimeout(() => endSession("idle"), IDLE_LIMIT_MS);
+}
+function armSessionLimits() {
+  clearTimeout(state.hardTimer);
+  state.hardTimer = setTimeout(() => endSession("max"), HARD_LIMIT_MS);
+  bumpIdle();
+}
+function clearSessionLimits() {
+  clearTimeout(state.idleTimer); clearTimeout(state.hardTimer);
+}
+// Gracefully pause an active session to stop it billing. Closes with 1000 so the
+// ws.onclose handler treats it as benign (no scary error banner); we show our own
+// friendly resume prompt instead. Tapping the mic runs begin() again, which mints
+// a fresh token and reconnects with the user's answers carried over.
+function endSession(reason) {
+  clearSessionLimits();
+  if (state.submitted || !state.ws) return;
+  logEvent("session_capped", { reason, snapshot: fieldsSnapshot() });
+  try { state.ws.close(1000, "session_" + reason); } catch {}
+  releaseMic();
+  const msg = reason === "max"
+    ? "Paused after 10 minutes to keep this free demo's costs down. " + TAP + " the mic to continue — your answers are saved."
+    : "Paused after a stretch of quiet to save resources. " + TAP + " the mic to continue — your answers are saved.";
+  const cap = $("caption");
+  if (cap) cap.innerHTML = '<span class="you">' + escapeHTML(msg) + "</span>";
+  announce(msg);
+}
 function setLevel(rms, open) {
   const r = $("ring"); if (!r) return;
   r.style.transform = "scale(" + (0.6 + Math.min(1.6, rms * 9)) + ")";
@@ -1415,6 +1497,7 @@ function scheduleThinking() {
 
 async function showDone() {
   state.submitted = true;
+  clearSessionLimits();
   setMicOn(false);
   $("finalCard").innerHTML = FIELDS.map((f) => rowHTML(f, true)).join("");
   bindEyes($("finalCard"));
@@ -1477,6 +1560,7 @@ async function begin() {
     const token = await getToken();
     await connect(token);
     await startMic();
+    armSessionLimits();
     sub.textContent = "";
     btn.disabled = false;
     renderProgress(); renderRail(null); renderCard(); renderCaption();

@@ -34,10 +34,12 @@ def query(sql: str) -> list[dict]:
 
 
 def sessions() -> list[dict]:
+    # Skip single-event sessions: a lone session_start (or a bot's one-off hit) with no
+    # real activity is just noise in the list, never a conversation worth replaying.
     return query(
         "SELECT session_id, submitted, event_count, country, region, city, colo, as_org, "
         "substr(ip_hash,1,10) AS ip_hash, started_at, last_seen "
-        "FROM sessions ORDER BY last_seen DESC LIMIT 500;"
+        "FROM sessions WHERE event_count > 1 ORDER BY last_seen DESC LIMIT 500;"
     )
 
 
