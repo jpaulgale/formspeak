@@ -2,20 +2,15 @@
 // Uses the DB binding (parameterized insert) instead of the Python serve.py's
 // wrangler-subprocess hack, so PII like O'Brien is handled safely.
 const FIELDS = [
-  "first_name", "last_name", "address", "date_of_birth", "ssn",
+  "first_name", "last_name", "address", "date_of_birth",
   "household_size", "household_income", "feedback",
 ];
 
 const LABELS = {
   first_name: "First name", last_name: "Last name", address: "Address",
-  date_of_birth: "DOB", ssn: "SSN", household_size: "Household size",
+  date_of_birth: "DOB", household_size: "Household size",
   household_income: "Monthly income", feedback: "Feedback",
 };
-
-function maskSSN(v) {
-  const d = String(v || "").replace(/\D/g, "");
-  return d.length >= 4 ? `•••-••-${d.slice(-4)}` : (v || "");
-}
 
 // Fire-and-forget Telegram ping so a new submission lands in your chat instantly.
 // No-ops (returns quietly) unless BOTH secrets are set, and never throws — a
@@ -27,7 +22,7 @@ async function notifyTelegram(env, data) {
 
   const lines = FIELDS
     .map((k) => {
-      const v = k === "ssn" ? maskSSN(data?.[k]) : String(data?.[k] ?? "").trim();
+      const v = String(data?.[k] ?? "").trim();
       return v ? `*${LABELS[k]}:* ${v}` : null;
     })
     .filter(Boolean);

@@ -119,30 +119,29 @@ const FIELDS = [
   { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell it out if necessary.", ac: "family-name" },
   { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street, borough, and ZIP.", ac: "street-address" },
   { key: "date_of_birth", label: "Date of birth", q: "What's your date of birth?",      hint: "Month, day and year.", ac: "bday" },
-  { key: "ssn",           label: "Social Security number", q: "And your Social Security number?", hint: "Nine digits. We'll read it back.", sensitive: true, ac: "off" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
 ];
 
-const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly seven fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, ssn (US Social Security number), household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
+const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly six fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, household_size (how many people live and eat together), and household_income (the household's gross monthly income in dollars).
 
 How to behave:
 - Greet the user in ONE short sentence, then ask for the first field.
 - Guide them one field at a time, in order — but if they volunteer several details at once, capture every one immediately.
 - The MOMENT you understand a value, call the set_field tool. Never wait for the user to finish or for confirmation to fill a field — fill it live so they can see it on screen.
 - If the user corrects themselves ("no, it's…", "actually…", "B as in boy"), call set_field again with the corrected value. Always trust the most recent correction.
-- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format ssn as XXX-XX-XXXX (nine digits). For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income.
-- For ssn, date_of_birth, and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
-- VALIDATION (enforced): a Social Security number is only valid with exactly nine digits. NEVER pad, zero-fill, or invent digits — if the user has only given you part of it (e.g. "542"), keep the partial value and ask for the remaining digits; do NOT format it as "542-00-0000". Only call set_field with the exact digits the user actually said. After you call set_field the tool response tells you whether it was confirmed; if it says not confirmed, tell the user what's wrong and ask for the missing/correct digits. A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the SSN or date of birth is unconfirmed.
+- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income.
+- For date_of_birth and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
+- VALIDATION (enforced): A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the date of birth is unconfirmed.
 - For the address: this is a New York City address and a city/borough is mandatory. After you call set_field for "address", the tool response tells you the outcome of NYC geosearch — ACT ON IT:
   • "confirmed": read the exact confirmed address back to the user, INCLUDING the borough (Manhattan, Brooklyn, Queens, the Bronx, or Staten Island), and ask them to confirm it.
   • "ambiguous" with on-screen options: it couldn't be auto-confirmed, so up to four candidate addresses are now shown on screen as lettered buttons (A, B, C, D). Briefly read the options out loud (e.g. "Is that A, Manhattan, or B, Brooklyn?") and tell the user they can ${tap} a button or just say the letter. When they pick, call set_field for the address with that option's full address. Do NOT guess for them. If none is right, ask them to repeat the street number, street, and borough.
   • "ambiguous" without options: ask the user which city or borough they mean, then say it back and re-confirm.
   • "could not confirm": tell them you couldn't find it at all and ask them to repeat the street number, street, and city/borough.
   The address is NOT done until the tool reports "confirmed". Never call submit_form while the address is unconfirmed.
-- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the seven, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
+- There is also an OPTIONAL field called "feedback" — the user's thoughts on this demo. It is never required: don't ask for it before the six, and NEVER let it block submit_form. Once everything is confirmed (or while wrapping up), you may ask ONCE, casually, "Any thoughts on the demo?" — if they share anything, call set_field with field "feedback" and their words. If they have none or skip it, just submit as normal.
 - Keep every spoken reply short and natural — one or two sentences, no filler.
-- When all seven fields are filled, read back ALL seven values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
+- When all six fields are filled, read back ALL six values clearly and ask "Is everything correct?". Only call submit_form AFTER the user clearly confirms (e.g. "yes", "that's right", "correct"). If they want any change, fix it with set_field and confirm again before submitting.
 - NEVER call submit_form until the user has verbally confirmed everything.`;
 
 const TOOLS = [{
@@ -432,25 +431,6 @@ async function dispatchTool(name, args) {
       }
       return "Could not find that address at all. A city or borough is REQUIRED — ask the user to repeat the street number, street, and city/borough, then confirm again.";
     }
-    if (f.key === "ssn") {
-      // Not confirmed until it's a structurally valid nine-digit SSN.
-      const sinfo = ssnInfo(args.value);
-      if (!sinfo.ok) {
-        if (sinfo.reason === "short")
-          return "The Social Security number is NOT confirmed: only " + sinfo.n + " digit" +
-            (sinfo.n === 1 ? "" : "s") + " so far, but a valid SSN needs exactly 9. " +
-            "Do NOT pad it with zeros or invent any digits. Tell the user it's incomplete, ask for the " +
-            "rest of the digits, and only call set_field once you have all nine they actually said.";
-        if (sinfo.reason === "long")
-          return "The Social Security number is NOT confirmed: that's more than 9 digits. " +
-            "Ask the user to repeat just their nine-digit SSN.";
-        return "The Social Security number is NOT confirmed: those nine digits aren't a valid SSN " +
-          "(it looks padded or made up — a real SSN never has a middle group of 00, a last group of 0000, " +
-          "or an area of 000/666/900+). Do NOT pad missing digits with zeros. Ask the user to say all nine " +
-          "digits of their actual SSN, then read them back.";
-      }
-      return "SSN confirmed — valid nine-digit number. Read it back as XXX-XX-XXXX so the user can catch any mistake.";
-    }
     if (f.key === "date_of_birth") {
       // Not confirmed unless the year is in [1900, 2026].
       const info = dobInfo(args.value);
@@ -491,8 +471,6 @@ async function dispatchTool(name, args) {
     const problems = [];
     if (state.values.address && state.addrStatus !== "ok")
       problems.push("the address is not confirmed (it needs a valid NYC city/borough)");
-    if (state.values.ssn && !ssnConfirmed(state.values.ssn))
-      problems.push("the Social Security number is not confirmed (it must be exactly nine digits)");
     if (state.values.date_of_birth && !dobInfo(state.values.date_of_birth).ok)
       problems.push("the date of birth is not confirmed (the year must be between 1900 and 2026)");
     if (state.values.household_size && !hhSizeInfo(state.values.household_size).ok)
@@ -675,7 +653,6 @@ function incomeInfo(v) {
 function isFilled(f) {
   if (!state.values[f.key]) return false;
   if (f.key === "address") return state.addrStatus === "ok";
-  if (f.key === "ssn") return ssnConfirmed(state.values.ssn);              // needs 9 digits
   if (f.key === "date_of_birth") return dobInfo(state.values.date_of_birth).ok; // 1900–2026
   if (f.key === "household_size") return hhSizeInfo(state.values.household_size).ok;       // 1–8+
   if (f.key === "household_income") return incomeInfo(state.values.household_income).ok;   // a dollar amount
@@ -819,12 +796,6 @@ function addrInlineMsg() {
 function fieldBadge(f, v) {
   if (!v) return "";
   if (f.key === "address") return addrBadge();
-  if (f.key === "ssn") {
-    const si = ssnInfo(v);
-    if (si.ok) return '<span class="ff-check">✓</span>';
-    const why = si.reason === "short" ? "needs 9 digits" : si.reason === "long" ? "too many digits" : "not a valid SSN";
-    return '<span class="vbadge warn">⚠ ' + why + "</span>";
-  }
   if (f.key === "date_of_birth") {
     const info = dobInfo(v);
     return info.ok ? '<span class="ff-check">✓</span>' : '<span class="vbadge warn">⚠ ' + dobReasonText(info.reason) + "</span>";
@@ -843,7 +814,7 @@ function rowHTML(f, plain) {
   const eye = f.sensitive && v ? '<button type="button" class="eye" data-eye="1" aria-label="' + (state.ssnVisible ? "Hide" : "Show") + ' Social Security number">' + (state.ssnVisible ? "hide" : "show") + "</button>" : "";
   const isAddr = f.key === "address";
   // Show a confirmation badge for the validated fields.
-  const validated = isAddr || f.key === "ssn" || f.key === "date_of_birth" || f.key === "household_size" || f.key === "household_income";
+  const validated = isAddr || f.key === "date_of_birth" || f.key === "household_size" || f.key === "household_income";
   const badge = v && validated ? fieldBadge(f, v) : "";
   return (
     '<div class="row ' + (filled ? "filled" : "") + (isAddr ? " addr" : "") + '" data-key="' + f.key + '">' +
@@ -977,17 +948,6 @@ function collectErrors() {
         out.push({ key: f.key, label: f.label, msg: state.addrStatus === "checking"
           ? "Still confirming the address — give it a moment."
           : "We couldn't confirm that address. Include a valid city or NYC borough." });
-      return;
-    }
-    if (f.key === "ssn") {
-      if (!v) out.push({ key: f.key, label: f.label, msg: "Enter your 9-digit Social Security number." });
-      else if (!ssnConfirmed(v)) {
-        const si = ssnInfo(v);
-        out.push({ key: f.key, label: f.label, msg: si.reason === "short"
-          ? "Social Security number needs all 9 digits."
-          : si.reason === "long" ? "Social Security number has too many digits."
-          : "That's not a valid Social Security number." });
-      }
       return;
     }
     if (f.key === "date_of_birth") {
