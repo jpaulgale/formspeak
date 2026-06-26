@@ -1416,7 +1416,18 @@ async function startMic() {
 function setMicOn(on) {
   state.micOn = on;
   if (state.micStream) state.micStream.getAudioTracks().forEach((t) => (t.enabled = on));
-  if (on) { state.phase = "listening"; } else { setLevel(0); clearTimeout(state.thinkTimer); }
+  if (on) {
+    state.phase = "listening";
+  } else {
+    // PTT-style commit on pause. We've just stopped sending frames (micOn=false), so if
+    // the user tapped pause within the 700ms VAD silence window their turn would never
+    // commit and FormSpeak would sit silent. audioStreamEnd flushes the cached audio so
+    // the model treats it as end-of-turn and replies — playback works while muted.
+    // GUARD: skip it while FormSpeak is speaking. There's no pending user turn to end,
+    // and flushing any leaked echo there could be read as a barge-in.
+    if (state.phase !== "speaking") sendAudioStreamEnd();
+    setLevel(0); clearTimeout(state.thinkTimer);
+  }
   renderStatus();
 }
 
@@ -1437,6 +1448,14 @@ function releaseMic() {
 function sendAudio(base64) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN)
     state.ws.send(JSON.stringify({ realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000", data: base64 } } }));
+}
+
+// Tell Gemini the audio stream ended (mic paused) so it finalizes the current turn and
+// replies, instead of waiting for trailing silence it will never receive. Valid with
+// automatic VAD enabled; resuming (sending audio again) reopens the stream automatically.
+function sendAudioStreamEnd() {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN)
+    state.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
 }
 
 async function playAudio(base64) {
