@@ -81,10 +81,12 @@ def summarize_event(ev: dict) -> str:
 
 
 def show_session(session_id: str, as_json: bool) -> None:
-    sess = query(f"SELECT * FROM sessions WHERE session_id = '{esc(session_id)}';")
+    # Accept a prefix — the list view shows a truncated id, so match on LIKE 'id%'.
+    like = f"'{esc(session_id)}%'"
+    sess = query(f"SELECT * FROM sessions WHERE session_id LIKE {like};")
     events = query(
         f"SELECT seq, type, payload, client_ts, created_at FROM events "
-        f"WHERE session_id = '{esc(session_id)}' ORDER BY seq ASC;"
+        f"WHERE session_id LIKE {like} ORDER BY seq ASC;"
     )
     if as_json:
         print(json.dumps({"session": sess[0] if sess else None, "events": events}, indent=2))
