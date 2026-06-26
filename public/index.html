@@ -801,14 +801,14 @@ function addrInlineMsg() {
   // `html` values here are fixed, safe strings (no user input) — fine to embed a link.
   const map = {
     checking: { mod: "info",    icon: '<span class="spin sm"></span>', html: "Checking this address with NYC GeoSearch…" },
-    ok:       { mod: "success", icon: "✓", html: 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' },
+    ok:       { mod: "success", icon: "", html: 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' },
     none:     { mod: "error",   icon: "⚠", html: "We couldn't confirm this address. Add a valid city or NYC borough." },
   };
   const m = map[state.addrStatus];
   if (!m) return "";
   return (
     '<div class="nyc-inlinemessage nyc-inlinemessage--' + m.mod + '">' +
-      '<span class="nyc-inlinemessage__icon" aria-hidden="true">' + m.icon + "</span>" +
+      (m.icon ? '<span class="nyc-inlinemessage__icon" aria-hidden="true">' + m.icon + "</span>" : "") +
       '<span class="nyc-inlinemessage__text">' + m.html + "</span>" +
     "</div>"
   );
