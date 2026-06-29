@@ -239,6 +239,11 @@ const state = {
   thinkTimer: null,
   idleTimer: null, hardTimer: null, // session cost caps (idle silence + hard backstop)
   pauseMsg: "",         // when auto-paused (idle/max), the reason shown in the paused mic label
+  // --- hero-card reveal ---
+  // When a value lands the card would otherwise jump straight to the next field. Instead
+  // we pin it on the just-answered field and "type" the value in, so the viewer sees it
+  // land. pinKey holds that field; revealN is how many chars are typed so far.
+  pinKey: null, revealN: 0, revealTimer: null,
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
   addrUnit: "",         // apartment/unit (e.g. "#7", "Apt 6D") — geosearch can't resolve it, so we carry it ourselves
@@ -538,6 +543,10 @@ async function dispatchTool(name, args) {
     }
     const f = FIELDS.find((x) => x.key === args.field);
     if (!f) return "ok";
+    // Anticipate the geosearch round-trip: mark the address "checking" BEFORE the first
+    // paint so its progress segment shows the neutral pulsing state, never a one-frame
+    // red flash, on the way to confirmation. verifyAddress re-sets this (no-op).
+    if (f.key === "address") state.addrStatus = "checking";
     setField(f.key, args.value);          // show it live immediately
     if (f.key === "address") {
       // Confirm against NYC geosearch; the canonical full address replaces what's shown.
@@ -904,6 +913,17 @@ function activeIndex() {
   return i; // -1 means all filled → review mode
 }
 
+// Which field the hero card is actually showing. Normally the first unfilled field,
+// but during a reveal we pin it on the just-answered field while its value types in
+// (state.pinKey) — so the card lingers there instead of jumping ahead immediately.
+function displayedIndex() {
+  if (state.pinKey != null) {
+    const i = FIELDS.findIndex((f) => f.key === state.pinKey);
+    if (i !== -1) return i;
+  }
+  return activeIndex();
+}
+
 function setField(key, value) {
   // Optional demo-feedback field: lives outside the required-field flow, so it
   // only updates the textarea — no progress/validation/review impact.
@@ -931,14 +951,61 @@ function setField(key, value) {
   // Phone: normalize whatever the model emits to our display format so the voice
   // and typing paths show the number identically.
   if (key === "phone") value = formatPhone(value);
+  // The field the card is actually showing right now — lastCardKey (what was last
+  // rendered), not activeIndex(), because a field can flip to "filled" before this
+  // write (e.g. address: addrStatus goes "ok" first, then the canonical value lands),
+  // which would advance activeIndex past it. We want a reveal when the value lands on
+  // the card the viewer is looking at; out-of-order fills of other fields just store.
+  const shownKey = state.pinKey != null ? state.pinKey : lastCardKey;
+  const prevVal = state.values[key] || "";
   const changed = state.values[key] !== value;
   state.values[key] = value;
   renderRail(changed ? key : null);
-  renderCard();
-  if (changed) {
-    const f = FIELDS.find((x) => x.key === key);
-    if (f) announce(f.label + ": " + spokenValue(f, value));
+  const f = FIELDS.find((x) => x.key === key);
+  // If this newly-valid value belongs to the field on screen, type it in and hold
+  // before advancing (revealField re-renders the card itself). Otherwise render now.
+  // Only type per-character when the card was empty (placeholder → value); a value→value
+  // swap (e.g. the address being replaced by its canonical form) just lands, no retype.
+  if (changed && f && key === shownKey && state.pinKey !== key && isFilled(f)) {
+    revealField(key, !prevVal);
+  } else {
+    renderCard();
   }
+  if (changed && f) announce(f.label + ": " + spokenValue(f, value));
+}
+
+// Pin the hero card on a just-answered field and "type" its value in, then hold so the
+// viewer sees it land before the card advances to the next field. Bounded so a fast,
+// multi-field ramble can't snowball: only the field currently on screen reveals (others
+// fill silently), and typing is capped to ~500ms regardless of value length.
+const REVEAL_HOLD_MS = 650;
+function endReveal() {
+  clearInterval(state.revealTimer); state.revealTimer = null;
+  state.pinKey = null; state.revealN = 0;
+  renderCard(); // unpinned → advances to the next active field with the normal slide-in
+}
+function revealField(key, doType) {
+  const raw = state.values[key] || "";
+  clearInterval(state.revealTimer); // supersede any in-flight reveal
+  state.pinKey = key; state.revealN = 0;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!doType || reduce || raw.length <= 1) {
+    // No per-character motion: show the whole value, then just hold.
+    state.revealN = raw.length; renderCard();
+    state.revealTimer = setTimeout(endReveal, REVEAL_HOLD_MS);
+    return;
+  }
+  const TYPE_MS = 500, TICK = 24;
+  const perTick = Math.max(1, Math.ceil(raw.length / (TYPE_MS / TICK)));
+  renderCard(); // start empty (caret only)
+  state.revealTimer = setInterval(() => {
+    state.revealN = Math.min(raw.length, state.revealN + perTick);
+    renderCard();
+    if (state.revealN >= raw.length) {
+      clearInterval(state.revealTimer);
+      state.revealTimer = setTimeout(endReveal, REVEAL_HOLD_MS); // typed out → hold, then advance
+    }
+  }, TICK);
 }
 
 // Placeholder shown in the hero card when the active field has no value yet.
@@ -948,8 +1015,8 @@ function emptyAnswerHTML() {
   if (!state.micOn) return '<div class="answer empty muted">' + TAP + ' the microphone to start</div>';
   if (state.phase === "speaking") return '<div class="answer empty muted">FormSpeak is speaking…</div>';
   if (state.phase === "thinking") return '<div class="answer empty muted">thinking…</div>';
-  // genuinely listening for the user's answer
-  return '<div class="answer empty"><span class="caret"></span>listening</div>';
+  // genuinely listening for the user's answer — label matches the dock's "Listening…"
+  return '<div class="answer empty"><span class="caret"></span>Listening…</div>';
 }
 
 // Segmented progress shown inside the hero card, in place of a "Question N of N"
@@ -964,6 +1031,11 @@ function progressHTML(ai) {
   const segs = FIELDS.map((f, i) => {
     let cls = "seg";
     if (isFilled(f)) cls += " done";
+    // Address verification is an async API round-trip. While it's in flight the value
+    // is present but not yet "ok" — don't flash it red ("disqualified") in that window;
+    // show a neutral pulsing "checking" instead. Red is reserved for a genuine failure
+    // (addrStatus "none": geosearch couldn't resolve it and needs the user to pick/retry).
+    else if (f.key === "address" && (state.values.address || "").trim() && state.addrStatus !== "none") cls += " checking";
     else if ((state.values[f.key] || "").trim()) cls += " bad";
     else if (i === ai) cls += " active";
     return '<div class="' + cls + '"><i></i></div>';
@@ -979,7 +1051,7 @@ function progressHTML(ai) {
 function renderCard() {
   const card = $("qcard");
   if (!card) return; // question card removed — the live form is the primary view
-  const ai = activeIndex();
+  const ai = displayedIndex();
 
   // Keep the card elevated for the whole live session — on as long as the mic is
   // active (listening/thinking/speaking), off only when paused. The persistent
@@ -1012,14 +1084,26 @@ function renderCard() {
 
   const f = FIELDS[ai];
   const val = state.values[f.key];
-  const addrLine = f.key === "address" && val ? '<div class="addr-status">' + addrInlineMsg() + "</div>" : "";
+  const aMsg = f.key === "address" && val ? addrInlineMsg() : "";
+  const addrLine = aMsg ? '<div class="addr-status">' + aMsg + "</div>" : ""; // no empty spacer when verified
+  // While this field is pinned for its reveal, show the value typing in: the first
+  // revealN characters, with a caret trailing until it's fully typed. Otherwise show
+  // the whole value (or the listening placeholder when empty).
+  let answerHTML;
+  if (val && state.pinKey === f.key) {
+    const typed = escapeHTML(val.slice(0, state.revealN));
+    const stillTyping = state.revealN < val.length;
+    answerHTML = '<div class="answer">' + typed + (stillTyping ? '<span class="caret"></span>' : "") + "</div>";
+  } else if (val) {
+    answerHTML = '<div class="answer">' + escapeHTML(val) + "</div>";
+  } else {
+    answerHTML = emptyAnswerHTML();
+  }
   card.innerHTML =
     progressHTML(ai) +
     '<div class="qtext">' + f.q + "</div>" +
     (f.hint ? '<div class="qhint">' + f.hint + "</div>" : "") +
-    (val
-      ? '<div class="answer">' + escapeHTML(val) + "</div>"
-      : emptyAnswerHTML()) +
+    answerHTML +
     addrLine;
   bumpAnim(card);
 }
@@ -1029,7 +1113,7 @@ let cardAnimReady = false; // Suppress the slide-in on the very first paint: it 
                            // fires alone, after the page is already drawn, and reads as a
                            // glitch. Field-to-field transitions still animate normally.
 function bumpAnim(card) {
-  const ai = activeIndex();
+  const ai = displayedIndex();
   const key = ai === -1 ? "review" : FIELDS[ai].key;
   if (key === lastCardKey) return;
   lastCardKey = key;
@@ -1053,18 +1137,12 @@ function addrBadge() {
 // of the address-confirmation status, shown in the hero card while the address
 // field is active. (The compact .vbadge above is kept for tight rail rows.)
 function addrInlineMsg() {
-  const GEO = "https://geosearch.planninglabs.nyc/";
-  // When the user gave an apartment/unit, spell out that the BUILDING was verified and
-  // the apartment was kept as entered (geosearch can't resolve to a unit). addrVerified
-  // is geosearch output but escape it anyway — defense in depth.
-  const okHtml = 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' +
-    (state.addrUnit && state.addrVerified
-      ? '<br><span class="addr-verified-note">Building verified: ' + escapeHTML(state.addrVerified) +
-        " · apartment kept as entered</span>"
-      : "");
+  // The finished (verified) state shows NOTHING here on purpose — the typed address, the
+  // green progress segment, and the rail's "✓ Verified" chip (which tooltips the exact
+  // confirmed building) already convey it. A success box made the card too busy to read.
+  // We only surface the in-progress and failure states, where the message is actionable.
   const map = {
     checking: { mod: "info",    icon: '<span class="spin sm"></span>', html: "Checking this address with NYC GeoSearch…" },
-    ok:       { mod: "success", icon: "", html: okHtml },
     none:     { mod: "error",   icon: "⚠", html: "We couldn't confirm this address. Add a valid city or NYC borough." },
   };
   const m = map[state.addrStatus];
@@ -1304,7 +1382,12 @@ function focusField(key) {
   const form = $("liveForm");
   const el = form && form.querySelector('.ff[data-key="' + key + '"] .ff-input');
   if (!el) return;
-  if (el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  // JS-requested smooth scroll overrides the CSS reduced-motion guard, so honour
+  // the preference explicitly here: jump instantly for reduced-motion users.
+  if (el.scrollIntoView) {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  }
   el.focus();
 }
 
@@ -1402,9 +1485,12 @@ function renderCaption() {
   const a = denoiseTranscript(state.asstBuf || state.lastAsst || "");
   // Chronological order: your speech first, then FormSpeak's reply under it (a turn
   // arrives as your speech, then its reply) — matching the mini-bar below.
+  // Each turn is its own block line (.cap-line) rather than <br>-joined inline text,
+  // so the live transcript window (#formScreen.started .caption) can stack and clip
+  // them as flex rows without reflowing the card below.
   $("caption").innerHTML =
-    (u ? '<span class="you"><strong>You:</strong> ' + escapeHTML(u) + "</span>" + (a ? "<br>" : "") : "") +
-    (a ? "<b>FormSpeak:</b> " + escapeHTML(a) : "");
+    (u ? '<span class="cap-line you"><strong>You:</strong> ' + escapeHTML(u) + "</span>" : "") +
+    (a ? '<span class="cap-line"><b>FormSpeak:</b> ' + escapeHTML(a) + "</span>" : "");
 
   // Mini-bar transcript: show the last exchange in chronological order — your reply
   // first, then FormSpeak's line after it (a turn arrives as your speech, then its
@@ -1633,12 +1719,18 @@ function endSession(reason) {
   releaseMic();
   announce(msg);
 }
+let _ringOpen = null;
 function setLevel(rms, open) {
   const r = $("ring"); if (!r) return;
+  // transform is the only property that changes every audio frame.
   r.style.transform = "scale(" + (0.6 + Math.min(1.6, rms * 9)) + ")";
-  // vivid when audio is passing through, dim grey when gated out → live feedback for tuning
-  r.style.background = open ? "var(--accent)" : "#777777";
-  r.style.opacity = open ? ".30" : ".13";
+  // background/opacity only flip with the gate — write them on the transition, not
+  // every frame (vivid when audio passes through, dim grey when gated out).
+  if (open !== _ringOpen) {
+    _ringOpen = open;
+    r.style.background = open ? "var(--accent)" : "#777777";
+    r.style.opacity = open ? ".30" : ".13";
+  }
 }
 const STATUS = {
   listening: { glyph: "",     text: "Listening… " + tap + " to pause", aria: "Stop listening",       say: "Listening." },
@@ -1765,6 +1857,10 @@ async function begin() {
     armSessionLimits();
     sub.textContent = "";
     btn.disabled = false;
+    // Latch the live layout: from here the transcript window reserves a fixed height
+    // (see #formScreen.started .caption) so the first transcript line doesn't shove
+    // the card down. Stays on through pauses so resume doesn't re-introduce the jump.
+    $("formScreen").classList.add("started");
     renderRail(null); renderCard(); renderCaption();
   } catch (err) {
     console.error(err);

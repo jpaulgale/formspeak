@@ -99,10 +99,16 @@ body {
 
 .progress { display: flex; gap: 6px; }
 .progress .seg { flex: 1; height: 4px; border-radius: 0; background: var(--gray-80); overflow: hidden; }
-.progress .seg > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
-.progress .seg.done > i { width: 100%; background: var(--ok); }
-.progress .seg.bad > i { width: 100%; background: var(--red-40); }
-.progress .seg.active > i { width: 100%; }
+/* Fill grows via scaleX (GPU compositor) rather than width (triggers layout).
+   transform-origin:left so it fills left→right like the old width animation. */
+.progress .seg > i { display: block; height: 100%; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform .4s ease; }
+.progress .seg.done > i { transform: scaleX(1); background: var(--ok); }
+.progress .seg.bad > i { transform: scaleX(1); background: var(--red-40); }
+.progress .seg.active > i { transform: scaleX(1); }
+/* Address mid-verification: neutral light-blue, gently pulsing to read as "working",
+   so the async geosearch round-trip never flashes red before it resolves green. */
+.progress .seg.checking > i { transform: scaleX(1); background: var(--blue-70); animation: segpulse 1.1s ease-in-out infinite; }
+@keyframes segpulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 
 /* In-card progress: sits where the "Question N of N" counter used to be. */
 .qprogress { margin: 0 0 12px; }
@@ -113,6 +119,11 @@ body {
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   padding: 26px 22px 22px; position: relative; overflow: hidden;
+  /* Floor so the common single-line question card is a consistent height — without
+     it, each field's content height set the card's size and the form below bounced
+     on every transition. Taller cards (2-line questions, the address inline message)
+     still grow past it; this just stops the short-card jitter. */
+  min-height: 168px;
   transition: border-color .2s ease, box-shadow .2s ease;
 }
 /* The card stays forward for the whole live session — on as long as the mic is
@@ -132,8 +143,8 @@ body {
 .answer.empty.muted { font-size: 17px; } /* mic-off / busy hint — no blinking caret */
 .answer .caret { width: 2px; height: 26px; background: var(--accent); animation: blink 1.1s steps(1) infinite; border-radius: 0; }
 @keyframes blink { 50% { opacity: 0; } }
-.card.anim { animation: slideIn .42s cubic-bezier(.2,.7,.2,1); }
-@keyframes slideIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.card.anim { animation: slideIn .34s cubic-bezier(.2,.7,.2,1); }
+@keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* The mic + live transcript + question card sit at the top of the form in normal
    flow and scroll away with the page. A fixed overlay mini-bar (.minibar, below)
@@ -194,9 +205,12 @@ body {
 .rail { background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
 .row {
   display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 4px;
-  transition: background .5s;
+  transition: background .5s ease;
 }
-.row.flash { background: var(--flash); }
+/* Highlight snaps on the instant the value lands (no transition while .flash is
+   present), then fades back out over .5s when the class is removed — the eye is
+   drawn at the moment of the change, not after it. */
+.row.flash { background: var(--flash); transition: none; }
 .row .ic { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--gray-70); flex: none; display: grid; place-items: center; }
 .row.filled .ic { border-color: var(--ok); background: var(--ok); }
 .row.filled .ic::after { content: "✓"; color: #fff; font-size: 11px; font-weight: 800; }
@@ -211,8 +225,9 @@ body {
 /* Mobile: no outline — the fields sit directly on the white panel so the form
    reads as one continuous surface. The desktop card border is restored below. */
 .liveform { background: transparent; border: 0; border-radius: 0; padding: 4px 0 6px; display: flex; flex-direction: column; gap: 8px; }
-.ff { display: flex; flex-direction: column; gap: 5px; border-radius: 4px; padding: 6px 8px; transition: background .5s; }
-.ff.flash { background: var(--flash); }
+.ff { display: flex; flex-direction: column; gap: 5px; border-radius: 4px; padding: 6px 8px; transition: background .5s ease; }
+/* Instant-on, fade-off (see .row.flash) — snap the highlight in, settle it out. */
+.ff.flash { background: var(--flash); transition: none; }
 .ff-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
 .ff-lab { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .ff-badge { display: inline-flex; align-items: center; }
@@ -295,9 +310,22 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 /* ---------- caption (live transcript: under the mic, above the form) ---------- */
 .caption { min-height: 20px; color: var(--gray-20); font-size: 15px; line-height: 1.45; text-align: center; padding: 0 6px; overflow-wrap: anywhere; }
 .caption:empty { display: none; }
+.caption .cap-line { display: block; }
 .caption b { color: var(--accent); font-weight: 700; }
 .caption .you { color: var(--ink); font-weight: 400; }
 .caption .you strong { font-weight: 700; } /* only the "You:" label is bold, not the transcript */
+/* Once a session is live, the transcript is a FIXED two-line window pinned to its
+   newest line — it never grows up from empty or collapses back, and clips older
+   lines off the top instead of reflowing. That keeps the question card beneath it
+   anchored as you speak and as turns roll over (the old display:none → content pop
+   was what shoved the card down). Pre-session it stays collapsed (:empty above) so
+   the landing page is compact. flex-end anchors the latest line to the bottom, next
+   to the card. */
+#formScreen.started .caption,
+#formScreen.started .caption:empty {
+  display: flex; flex-direction: column; justify-content: flex-end;
+  height: calc(1.45em * 2); min-height: 0; overflow: hidden;
+}
 
 /* ---------- mic button ---------- */
 .dock { display: flex; flex-direction: column; align-items: center; gap: 9px; }
@@ -370,14 +398,18 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .pillrow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .pill { font-size: 13px; font-weight: 600; color: var(--gray-20); background: var(--gray-90); border: 1px solid var(--line); padding: 6px 12px; border-radius: 99px; }
 .big-cta { margin-top: 8px; }
-.success-ic { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); display: grid; place-items: center; box-shadow: 0 14px 36px -10px rgba(0,183,3,.55); animation: pop .5s cubic-bezier(.2,.8,.2,1); }
+.success-ic { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); display: grid; place-items: center; box-shadow: 0 14px 36px -10px rgba(0,183,3,.55); animation: pop .5s cubic-bezier(.34,1.4,.5,1); }
 .success-ic::after { content: "✓"; color: #fff; font-size: 44px; font-weight: 800; }
-@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+/* Rare delight moment (done screen): a touch of overshoot in the curve makes the
+   ✓ land rather than just arrive. Start from .7 (not .4) so it grows, not pops from
+   near-nothing. */
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .final-card { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; box-shadow: var(--shadow); }
 .final-card .row .lab { color: var(--gray-30); }
 .final-card .row .val { color: var(--ink); }
-.btn-ghost { background: var(--white); color: var(--accent); border: 1px solid var(--gray-70); padding: 12px 22px; border-radius: 99px; font-family: var(--font-body); font-size: 15px; font-weight: 700; cursor: pointer; transition: color .2s, border-color .2s; }
+.btn-ghost { background: var(--white); color: var(--accent); border: 1px solid var(--gray-70); padding: 12px 22px; border-radius: 99px; font-family: var(--font-body); font-size: 15px; font-weight: 700; cursor: pointer; transition: color .2s, border-color .2s, transform .1s; }
 .btn-ghost:hover { color: var(--accent-dark); border-color: var(--accent-dark); }
+.btn-ghost:active { transform: scale(.98); } /* press feedback, matching every other pressable */
 /* primary pill (used as the "Email me" anchor on the done screen) */
 .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   background: var(--accent); color: #fff; border: none; padding: 13px 26px; border-radius: 99px;
