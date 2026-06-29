@@ -980,9 +980,11 @@ function renderCard() {
   if (!card) return; // question card removed — the live form is the primary view
   const ai = activeIndex();
 
-  // Light the card up only while genuinely listening (same condition as the
-  // blinking caret) — blue focus ring via .listening. Off when thinking/speaking/paused.
-  card.classList.toggle("listening", state.micOn && state.phase === "listening");
+  // Keep the card elevated for the whole live session — on as long as the mic is
+  // active (listening/thinking/speaking), off only when paused. The persistent
+  // depth reads as "this card is live," which the transcript turning over shouldn't
+  // interrupt.
+  card.classList.toggle("active", state.micOn);
 
   // Keep the overlay mini-bar in sync (phase · field, the field hint, + listening
   // tint on its mic). The transcript line is updated separately in renderCaption.
