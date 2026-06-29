@@ -99,7 +99,7 @@
     <div class="card" id="qcard"></div>
     </div>
     <form class="liveform" id="liveForm" autocomplete="off" novalidate></form>
-    <p class="credit credit-foot">This demo was created during the <a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a> by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a></p>
+    <p class="credit credit-foot">This demo was created during the <a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a> by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a>.</p>
   </div>
 
   <!-- DONE SCREEN -->
@@ -142,7 +142,7 @@ const FIELDS = [
   { key: "phone",         label: "Phone number", q: "What's your phone number?",         hint: "10 digits, or include a country code.", tel: true, ac: "tel" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
   { key: "household_income", label: "Monthly household income", q: "About how much does your household earn each month, before taxes?", hint: "A dollar amount — say zero if there's no income.", ac: "off" },
-  { key: "preferred_language", label: "Preferred language", q: "What language would you like to get notices in?", hint: "The language you'd like official notices in.", select: ["English", "Spanish", "Chinese", "Bengali", "Russian", "Haitian Creole", "Korean", "Arabic", "Yiddish", "Other"], ph: "Select a language…", ac: "off" },
+  { key: "preferred_language", label: "Preferred language", q: "What language would you like to get notices in?", hint: "", select: ["English", "Spanish", "Chinese", "Bengali", "Russian", "Haitian Creole", "Korean", "Arabic", "Yiddish", "Other"], ph: "Select a language…", ac: "off" },
 ];
 
 const SYSTEM_INSTRUCTION = `You are "FormSpeak", a warm, fast voice assistant that helps a user fill out a short SNAP (food assistance) benefits form just by talking. The form has exactly eight fields, in this order: first_name, last_name, address (a New York City street address, in one of the five boroughs), date_of_birth, phone (a US 10-digit phone number, or an international number with its country code), household_size (how many people live and eat together), household_income (the household's gross monthly income in dollars), and preferred_language (the language the user wants official notices in).
@@ -244,6 +244,7 @@ const state = {
   // we pin it on the just-answered field and "type" the value in, so the viewer sees it
   // land. pinKey holds that field; revealN is how many chars are typed so far.
   pinKey: null, revealN: 0, revealTimer: null,
+  editKey: null,        // a form field the user is actively editing → the card follows it live
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
   addrUnit: "",         // apartment/unit (e.g. "#7", "Apt 6D") — geosearch can't resolve it, so we carry it ourselves
@@ -917,8 +918,11 @@ function activeIndex() {
 // but during a reveal we pin it on the just-answered field while its value types in
 // (state.pinKey) — so the card lingers there instead of jumping ahead immediately.
 function displayedIndex() {
-  if (state.pinKey != null) {
-    const i = FIELDS.findIndex((f) => f.key === state.pinKey);
+  // A field the user is actively editing wins (the card mirrors their edits live), then
+  // a reveal in progress, then the normal "first unfilled field".
+  const key = state.editKey != null ? state.editKey : state.pinKey;
+  if (key != null) {
+    const i = FIELDS.findIndex((f) => f.key === key);
     if (i !== -1) return i;
   }
   return activeIndex();
@@ -979,6 +983,9 @@ function setField(key, value) {
 // multi-field ramble can't snowball: only the field currently on screen reveals (others
 // fill silently), and typing is capped to ~500ms regardless of value length.
 const REVEAL_HOLD_MS = 650;
+// The address resolves to a longer, multi-part line (street, borough, ZIP) that takes
+// longer to read than a name or a number, so it lingers ~2s before advancing.
+function holdFor(key) { return key === "address" ? 2000 : REVEAL_HOLD_MS; }
 function endReveal() {
   clearInterval(state.revealTimer); state.revealTimer = null;
   state.pinKey = null; state.revealN = 0;
@@ -992,7 +999,7 @@ function revealField(key, doType) {
   if (!doType || reduce || raw.length <= 1) {
     // No per-character motion: show the whole value, then just hold.
     state.revealN = raw.length; renderCard();
-    state.revealTimer = setTimeout(endReveal, REVEAL_HOLD_MS);
+    state.revealTimer = setTimeout(endReveal, holdFor(key));
     return;
   }
   const TYPE_MS = 500, TICK = 24;
@@ -1003,7 +1010,7 @@ function revealField(key, doType) {
     renderCard();
     if (state.revealN >= raw.length) {
       clearInterval(state.revealTimer);
-      state.revealTimer = setTimeout(endReveal, REVEAL_HOLD_MS); // typed out → hold, then advance
+      state.revealTimer = setTimeout(endReveal, holdFor(key)); // typed out → hold, then advance
     }
   }, TICK);
 }
@@ -1090,7 +1097,11 @@ function renderCard() {
   // revealN characters, with a caret trailing until it's fully typed. Otherwise show
   // the whole value (or the listening placeholder when empty).
   let answerHTML;
-  if (val && state.pinKey === f.key) {
+  if (state.editKey === f.key) {
+    // Mirroring a live form edit: show the current value with a trailing caret (even when
+    // empty), so the card reads as the input the user is typing into — not the mic prompt.
+    answerHTML = '<div class="answer">' + escapeHTML(val || "") + '<span class="caret"></span></div>';
+  } else if (val && state.pinKey === f.key) {
     const typed = escapeHTML(val.slice(0, state.revealN));
     const stillTyping = state.revealN < val.length;
     answerHTML = '<div class="answer">' + typed + (stillTyping ? '<span class="caret"></span>' : "") + "</div>";
@@ -1127,7 +1138,7 @@ function addrBadge() {
     // Hovering ✓ Verified reveals the exact building geosearch confirmed (the unit isn't
     // part of what was verified, so the tooltip shows the building on its own).
     const t = state.addrVerified ? ' title="Verified building: ' + escapeHTML(state.addrVerified) + '"' : "";
-    return '<span class="vbadge ok"' + t + ">✓ Verified</span>";
+    return '<span class="vbadge ok"' + t + ">✓ Verified with NYC GeoSearch</span>";
   }
   if (state.addrStatus === "none") return '<span class="vbadge warn">⚠ unconfirmed</span>';
   return "";
@@ -1274,10 +1285,18 @@ function buildForm() {
         const errs = collectErrors();
         renderErrorSummary(errs, false); // update content but keep focus in the field
       }
+      // Pull the hero card onto the field being edited so the edit shows up there live.
+      // Cancel any in-flight reveal — the user's direct edit takes over the card.
+      state.editKey = f.key;
+      if (state.revealTimer) { clearInterval(state.revealTimer); state.revealTimer = null; state.pinKey = null; }
       renderCard();
     };
     input.addEventListener("input", onEdit);
     if (f.select) input.addEventListener("change", onEdit); // selects: cover older browsers too
+    // Leaving the field hands the card back to the normal active-field flow.
+    input.addEventListener("blur", () => {
+      if (state.editKey === f.key) { state.editKey = null; renderCard(); }
+    });
   });
 
   // SSN show/hide
