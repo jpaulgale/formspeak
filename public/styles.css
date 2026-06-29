@@ -318,6 +318,18 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .mic-label { color: var(--ink); font-size: 14px; font-weight: 600; min-height: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .mic-sub { color: var(--gray-30); font-size: 12px; margin-top: -4px; }
 
+/* Pre-start "try saying" example — models the out-of-order, ramble-and-correct
+   way of talking to FormSpeak. Fades in after first paint so it doesn't compete
+   with load; .gone collapses it once a session begins. */
+.tryline {
+  max-width: 30rem; margin: 4px auto 0; padding: 0 12px; text-align: center;
+  opacity: 0; transform: translateY(4px); transition: opacity .5s ease, transform .5s ease;
+}
+.tryline.in { opacity: 1; transform: none; }
+.tryline.gone { display: none; }
+.tryline-lead { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
+.tryline-quote { display: block; margin-top: 4px; font-style: italic; font-size: 15px; line-height: 1.45; color: var(--gray-20); }
+
 /* ---------- activity glyphs (thinking / speaking) ---------- */
 .tdots { display: inline-flex; gap: 4px; }
 .tdots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: tbounce 1.1s infinite ease-in-out both; }
