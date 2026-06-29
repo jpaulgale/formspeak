@@ -403,7 +403,10 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* float the panel as a centered card instead of a full-height phone column */
   body { align-items: flex-start; }
   .app {
-    max-width: 660px;
+    /* 720 (not 660) so the headline's "Ramble, correct yourself, answer out of
+       order." line fits at full 32px without orphaning a word. The form itself is
+       pinned back to its original width below, so only the whitespace grows. */
+    max-width: 720px;
     min-height: auto;
     align-self: flex-start;
     margin: 40px auto;
@@ -417,8 +420,11 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* desktop is a floating card, not a scrolling phone column — no sticky header */
   .stickytop, .stickytop.is-stuck { position: static; margin: 0; padding: 0; background: none; box-shadow: none; }
   .appmain { padding-top: 0; }  /* card padding handles top spacing on desktop */
-  /* two-column editable form; address + submit + hint span the full width */
+  /* two-column editable form; address + submit + hint span the full width.
+     max-width pins it to its pre-720 width so widening the card only adds
+     whitespace around the form, not to the form. */
   .liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px;
+    max-width: 608px; margin-inline: auto; width: 100%;
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
   .nyc-errorsummary,
   .liveform .ff[data-key="address"],
