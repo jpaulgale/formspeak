@@ -270,6 +270,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 }
 .nyc-inlinemessage__icon { flex: none; font-weight: 800; line-height: 1.3; display: inline-flex; align-items: center; }
 .nyc-inlinemessage__text { min-width: 0; }
+.addr-verified-note { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 500; opacity: .8; }
 .nyc-inlinemessage--info    { background: var(--accent-soft);        border-left-color: var(--accent);    color: var(--accent-dark); }
 .nyc-inlinemessage--success { background: rgba(0,183,3,.10);         border-left-color: var(--ok-text);   color: var(--ok-text); }
 .nyc-inlinemessage--error   { background: rgba(236,19,30,.07);       border-left-color: var(--warn-text); color: var(--warn-text); }

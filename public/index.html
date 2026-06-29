@@ -137,7 +137,7 @@ const FIELDS = [
   // app-specific fields intentionally opt out of autofill with "off".
   { key: "first_name",    label: "First name", q: "What's your first name?",            hint: "Spell it out if necessary.", ac: "given-name" },
   { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell it out if necessary.", ac: "family-name" },
-  { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street, borough, and ZIP.", ac: "street-address" },
+  { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street and borough (ZIP optional).", ac: "street-address" },
   { key: "date_of_birth", label: "Date of birth", q: "What's your date of birth?",      hint: "Month, day and year.", ac: "bday" },
   { key: "phone",         label: "Phone number", q: "What's your phone number?",         hint: "10 digits, or include a country code.", tel: true, ac: "tel" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
@@ -152,7 +152,7 @@ How to behave:
 - Guide them one field at a time, in order — but if they volunteer several details at once, capture every one immediately.
 - The MOMENT you understand a value, call the set_field tool. Never wait for the user to finish or for confirmation to fill a field — fill it live so they can see it on screen.
 - If the user corrects themselves ("no, it's…", "actually…", "B as in boy"), call set_field again with the corrected value. Always trust the most recent correction.
-- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format phone as digits only with the on-screen formatter doing the prettifying — just give the digits the user ACTUALLY said, e.g. "2125551234"; if they include a country code keep it (a leading 1 for US is fine, and international numbers should start with "+"). NEVER pad, zero-fill, or invent digits to reach ten — if the user has only given part of the number (e.g. "908 770"), call set_field with exactly those digits ("908770") and ask for the rest; do NOT complete it to "9087700000". For address, include house number, street, city/borough, state, and ZIP — a city or borough is REQUIRED, never accept an address without one. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income. For preferred_language, this is a single-select — match what the user says to one of exactly: English, Spanish, Chinese, Bengali, Russian, Haitian Creole, Korean, Arabic, Yiddish; if it's none of those, set "Other".
+- Normalize values: Capitalize names. Format date_of_birth as "Month D, YYYY". Format phone as digits only with the on-screen formatter doing the prettifying — just give the digits the user ACTUALLY said, e.g. "2125551234"; if they include a country code keep it (a leading 1 for US is fine, and international numbers should start with "+"). NEVER pad, zero-fill, or invent digits to reach ten — if the user has only given part of the number (e.g. "908 770"), call set_field with exactly those digits ("908770") and ask for the rest; do NOT complete it to "9087700000". For address, include house number, street, and city/borough — a city or borough is REQUIRED, never accept an address without one. If the user gives an apartment, unit, suite, or floor (e.g. "apartment 6D", "#4B", "unit 200"), KEEP it in the value exactly as they said it — pass the whole thing (e.g. "171 E 2nd St #6D, Manhattan"); the address lookup verifies the building and the apartment is preserved automatically, so never drop it. A ZIP code is OPTIONAL: do NOT ask the user for a ZIP, and never withhold confirmation just because one is missing — the address lookup fills in the official ZIP once the street and borough resolve. For household_size, this is a single-select: turn whatever the user says ("just me and my two kids") into a single whole number from 1 to 8, and use "8 or more" for anything eight and up. For household_income, normalize to a dollar amount like "$2,000" (gross monthly, before taxes); "$0" is valid if they have no income. For preferred_language, this is a single-select — match what the user says to one of exactly: English, Spanish, Chinese, Bengali, Russian, Haitian Creole, Korean, Arabic, Yiddish; if it's none of those, set "Other".
 - For phone, date_of_birth, and the spelling of names, briefly read the value back right after you capture it so the user can catch mistakes.
 - VALIDATION (enforced): A phone number must be a 10-digit US number (an optional leading 1 country code is fine), or an international number that starts with "+" and its country code. NEVER pad, zero-fill, or invent digits — if the user has only said part of it (e.g. "542" or "908 770"), keep exactly those digits and ask for the remaining ones; do NOT zero-fill it to ten. Only call set_field with the exact digits the user actually said. After you call set_field the tool response tells you whether it was confirmed; if it says not confirmed, tell the user what's wrong (too few digits, needs a country code, etc.) and ask for the missing/correct digits. A date_of_birth must fall between the year 1900 and 2026 — if the tool response says it's before 1900 or after 2026, tell the user it's out of range and ask them to repeat it. Never call submit_form while the phone number or date of birth is unconfirmed.
 - For the address: this is a New York City address and a city/borough is mandatory. Do NOT call set_field for "address" until the user has given you BOTH a house number AND a street name — a bare house number on its own (e.g. just "125") or a lone street name with no number is NOT enough, because the geosearch will autocomplete a fragment into a real-looking address that the user never said (e.g. "125" → "125 Beach 125 Street"). If you only have one part, briefly ask for the missing piece (the street, or the number) before calling set_field. Once you have a number and street, call set_field even if the borough is still missing — geosearch will then either confirm it or ask which borough. After you call set_field for "address", the tool response tells you the outcome of NYC geosearch — ACT ON IT:
@@ -176,7 +176,7 @@ const TOOLS = [{
         type: "object",
         properties: {
           field: { type: "string", enum: FIELDS.map(f => f.key).concat(["feedback"]), description: "Which field to fill. 'feedback' is the optional demo-feedback field." },
-          value: { type: "string", description: "The normalized value to display in that field. For 'address', this MUST be a New York City address in one of the five boroughs (Manhattan, Brooklyn, Queens, the Bronx, Staten Island) — never accept or set an address outside NYC." },
+          value: { type: "string", description: "The normalized value to display in that field. For 'address', this MUST be a New York City address in one of the five boroughs (Manhattan, Brooklyn, Queens, the Bronx, Staten Island) — never accept or set an address outside NYC. Include any apartment/unit/suite/floor the user gave (e.g. '171 E 2nd St #6D, Manhattan') — keep it in the value; it is preserved automatically." },
         },
         required: ["field", "value"],
       },
@@ -240,6 +240,8 @@ const state = {
   idleTimer: null, hardTimer: null, // session cost caps (idle silence + hard backstop)
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
+  addrUnit: "",         // apartment/unit (e.g. "#7", "Apt 6D") — geosearch can't resolve it, so we carry it ourselves
+  addrVerified: "",     // canonical building address geosearch confirmed (no unit) — shown on hovering ✓ Verified
   addrSeq: 0,
   addrChoices: [],      // [{letter,full,borough}] when an address splits across boroughs
   // --- noise gate ---
@@ -331,6 +333,7 @@ const fieldsSnapshot = () => ({
   filled: FIELDS.filter(isFilled).map((f) => f.key),
   present: FIELDS.filter((f) => (state.values[f.key] || "").trim()).map((f) => f.key),
   addr_status: state.addrStatus,
+  addr_unit: state.addrUnit || "",
   submitted: !!state.submitted,
 });
 
@@ -636,19 +639,64 @@ async function dispatchTool(name, args) {
   return "unknown tool";
 }
 
+// Pelias (NYC geosearch) only resolves to the building — house number + street —
+// and an apartment glued on can derail the match. So we peel a trailing
+// secondary-unit token off the input, geosearch the bare building, then re-attach
+// the unit to the confirmed address. The unit vocabulary below is the USPS Pub. 28
+// (Appendix C2) designator set — the same list the `parse-address` library encodes
+// — minus the ambiguous English words (front, rear, lower, …) that collide with
+// real street names, plus the "#" shorthand.
+const UNIT_KW = "apt|apartment|unit|ste|suite|rm|room|fl|floor|bldg|building|dept|department|lot|spc|space|trlr|trailer|hngr|hangar|slip|pier|penthouse|ph|no";
+const UNIT_RE = new RegExp(
+  "[,\\s]+(?:#\\s*([A-Za-z0-9][A-Za-z0-9-]*)|(" + UNIT_KW + ")\\.?\\s*#?\\s*([A-Za-z0-9][A-Za-z0-9-]*))(?=$|[,\\s])",
+  "i",
+);
+// → { base: "171 E 2nd St, New York NY", unit: "#7" }  (unit is "" when none found)
+function splitUnit(value) {
+  const v = String(value || "").trim();
+  const m = v.match(UNIT_RE);
+  if (!m) return { base: v, unit: "" };
+  // Guard against false hits on street names (e.g. "100 Floor Ave"): a keyword-style
+  // unit must carry a digit or be a tiny tag like "B"/"6D". The "#" form is always a unit.
+  if (m[2] && !(/\d/.test(m[3]) || m[3].length <= 2)) return { base: v, unit: "" };
+  const base = (v.slice(0, m.index) + " " + v.slice(m.index + m[0].length))
+    .replace(/\s*,\s*,\s*/g, ", ").replace(/\s{2,}/g, " ").replace(/\s+,/g, ",")
+    .replace(/^[\s,]+|[\s,]+$/g, "").trim();
+  const unit = m[1] != null
+    ? "#" + m[1]                                                       // "#7"
+    : m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase() + " " + m[3]; // "Apt 6D"
+  return { base, unit };
+}
+// Splice an apartment/unit into a canonical "STREET, Borough, NY ZIP" address,
+// right after the street segment: "171 EAST 2 STREET #7, Manhattan, NY 10009".
+function withUnit(full, unit) {
+  if (!unit) return full;
+  const i = full.indexOf(",");
+  return i === -1 ? full + " " + unit : full.slice(0, i) + " " + unit + full.slice(i);
+}
+
 // Confirm a spoken address against NYC geosearch and swap in the official full
 // address (always borough-qualified). A sequence guard keeps only the latest lookup.
 async function verifyAddress(value) {
   const seq = ++state.addrSeq;
+  // Peel off any apartment/unit BEFORE geosearch. Picking an on-screen A–D candidate
+  // re-sends a unit-less address — keep the unit we already captured in that case;
+  // any other unit-less input is a fresh address, so clear a stale unit.
+  const isPick = state.addrChoices.some((c) => c.full === value);
+  const { base, unit } = splitUnit(value);
+  if (unit) state.addrUnit = unit;
+  else if (!isPick) state.addrUnit = "";
   state.addrStatus = "checking"; state.addrBorough = ""; state.addrChoices = [];
   renderRail(null); renderCard();
   try {
-    const r = await fetch("/api/geosearch?text=" + encodeURIComponent(value));
+    const r = await fetch("/api/geosearch?text=" + encodeURIComponent(base));
     const j = await r.json();
     if (seq !== state.addrSeq) return null;            // a newer correction superseded this lookup
     if (j && j.status === "confirmed" && j.full) {
       state.addrStatus = "ok"; state.addrBorough = j.borough || ""; state.addrChoices = [];
-      setField("address", j.full);                     // display the canonical full address
+      state.addrVerified = j.full;                     // the building geosearch actually confirmed (no unit)
+      j.full = withUnit(j.full, state.addrUnit);       // re-attach the unit geosearch can't resolve
+      setField("address", j.full);                     // display the canonical full address (+ unit)
       return j;
     }
     // ambiguous / not_found / error → leave the address UNCONFIRMED (blocks completion).
@@ -680,6 +728,8 @@ async function verifyAddress(value) {
 // Commit a chosen address (from a tap or a spoken letter) and confirm it locally.
 function chooseAddress(full) {
   if (!full) return;
+  state.addrVerified = full;                         // the building that was confirmed (no unit)
+  full = withUnit(full, state.addrUnit);             // carry the apartment/unit onto the picked building
   state.addrSeq++;                                   // cancel any in-flight lookup
   state.addrChoices = [];
   state.addrStatus = "ok";
@@ -984,7 +1034,12 @@ function bumpAnim(card) {
 
 function addrBadge() {
   if (state.addrStatus === "checking") return '<span class="vbadge checking"><span class="spin sm"></span>confirming…</span>';
-  if (state.addrStatus === "ok") return '<span class="vbadge ok">✓ Verified</span>';
+  if (state.addrStatus === "ok") {
+    // Hovering ✓ Verified reveals the exact building geosearch confirmed (the unit isn't
+    // part of what was verified, so the tooltip shows the building on its own).
+    const t = state.addrVerified ? ' title="Verified building: ' + escapeHTML(state.addrVerified) + '"' : "";
+    return '<span class="vbadge ok"' + t + ">✓ Verified</span>";
+  }
   if (state.addrStatus === "none") return '<span class="vbadge warn">⚠ unconfirmed</span>';
   return "";
 }
@@ -994,10 +1049,17 @@ function addrBadge() {
 // field is active. (The compact .vbadge above is kept for tight rail rows.)
 function addrInlineMsg() {
   const GEO = "https://geosearch.planninglabs.nyc/";
-  // `html` values here are fixed, safe strings (no user input) — fine to embed a link.
+  // When the user gave an apartment/unit, spell out that the BUILDING was verified and
+  // the apartment was kept as entered (geosearch can't resolve to a unit). addrVerified
+  // is geosearch output but escape it anyway — defense in depth.
+  const okHtml = 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' +
+    (state.addrUnit && state.addrVerified
+      ? '<br><span class="addr-verified-note">Building verified: ' + escapeHTML(state.addrVerified) +
+        " · apartment kept as entered</span>"
+      : "");
   const map = {
     checking: { mod: "info",    icon: '<span class="spin sm"></span>', html: "Checking this address with NYC GeoSearch…" },
-    ok:       { mod: "success", icon: "", html: 'Verified with <a href="' + GEO + '" target="_blank" rel="noopener">NYC GeoSearch ↗</a>' },
+    ok:       { mod: "success", icon: "", html: okHtml },
     none:     { mod: "error",   icon: "⚠", html: "We couldn't confirm this address. Add a valid city or NYC borough." },
   };
   const m = map[state.addrStatus];
@@ -1333,9 +1395,11 @@ function denoiseTranscript(s) {
 function renderCaption() {
   const u = denoiseTranscript(state.userBuf || state.lastUser || "");
   const a = denoiseTranscript(state.asstBuf || state.lastAsst || "");
+  // Chronological order: your speech first, then FormSpeak's reply under it (a turn
+  // arrives as your speech, then its reply) — matching the mini-bar below.
   $("caption").innerHTML =
-    (a ? "<b>FormSpeak:</b> " + escapeHTML(a) + "<br>" : "") +
-    (u ? '<span class="you"><strong>You:</strong> ' + escapeHTML(u) + "</span>" : "");
+    (u ? '<span class="you"><strong>You:</strong> ' + escapeHTML(u) + "</span>" + (a ? "<br>" : "") : "") +
+    (a ? "<b>FormSpeak:</b> " + escapeHTML(a) : "");
 
   // Mini-bar transcript: show the last exchange in chronological order — your reply
   // first, then FormSpeak's line after it (a turn arrives as your speech, then its
