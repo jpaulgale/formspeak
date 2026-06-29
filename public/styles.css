@@ -404,7 +404,11 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* float the panel as a centered card instead of a full-height phone column */
   body { align-items: flex-start; }
   .app {
-    max-width: 660px;
+    /* 720 (not 660) gives the hero enough room to keep "Ramble, correct yourself,
+       answer out of order." on one line at 32px on desktop. The question card and
+       form are pinned to 608 below, so only the hero uses the extra width — the
+       form is unchanged and the two cards stay the same width as each other. */
+    max-width: 720px;
     min-height: auto;
     align-self: flex-start;
     margin: 40px auto;
@@ -418,6 +422,11 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* desktop is a floating card, not a scrolling phone column — no sticky header */
   .stickytop, .stickytop.is-stuck { position: static; margin: 0; padding: 0; background: none; box-shadow: none; }
   .appmain { padding-top: 0; }  /* card padding handles top spacing on desktop */
+  /* Question card + form pinned to their original (660-card) width and centered,
+     so the wider card only adds whitespace around them and the two stay equal.
+     width:100% is required: as flex items, margin-inline:auto alone would shrink
+     them to their content width instead of holding 608. */
+  #qcard, .liveform { max-width: 608px; width: 100%; margin-inline: auto; }
   /* two-column editable form; address + submit + hint span the full width */
   .liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px;
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
