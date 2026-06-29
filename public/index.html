@@ -870,26 +870,12 @@ function setField(key, value) {
   if (key === "phone") value = formatPhone(value);
   const changed = state.values[key] !== value;
   state.values[key] = value;
-  renderProgress();
   renderRail(changed ? key : null);
   renderCard();
   if (changed) {
     const f = FIELDS.find((x) => x.key === key);
     if (f) announce(f.label + ": " + spokenValue(f, value));
   }
-}
-
-function renderProgress() {
-  const p = $("progress");
-  if (!p) return; // progress bar removed from the top
-  if (p.children.length !== FIELDS.length) {
-    p.innerHTML = FIELDS.map(() => '<div class="seg"><i></i></div>').join("");
-  }
-  const ai = activeIndex();
-  [...p.children].forEach((seg, i) => {
-    seg.classList.toggle("done", isFilled(FIELDS[i]));
-    seg.classList.toggle("active", i === ai);
-  });
 }
 
 // Placeholder shown in the hero card when the active field has no value yet.
@@ -901,6 +887,30 @@ function emptyAnswerHTML() {
   if (state.phase === "thinking") return '<div class="answer empty muted">thinking…</div>';
   // genuinely listening for the user's answer
   return '<div class="answer empty"><span class="caret"></span>listening</div>';
+}
+
+// Segmented progress shown inside the hero card, in place of a "Question N of N"
+// counter. One segment per field; they fill in ANY order as the user rambles —
+// which is the point: a linear "step 1 of 7" would contradict the out-of-order UX.
+//   green (done)  = value present AND valid (isFilled)
+//   red   (bad)   = value present but NOT valid yet (e.g. address unresolved,
+//                   phone not confirmed, DOB out of range) — "answered but wrong"
+//   blue  (active)= the field currently up, still empty
+//   gray          = untouched
+function progressHTML(ai) {
+  const segs = FIELDS.map((f, i) => {
+    let cls = "seg";
+    if (isFilled(f)) cls += " done";
+    else if ((state.values[f.key] || "").trim()) cls += " bad";
+    else if (i === ai) cls += " active";
+    return '<div class="' + cls + '"><i></i></div>';
+  }).join("");
+  // Keep the count available to screen readers even though it's no longer on screen.
+  const done = FIELDS.filter(isFilled).length;
+  const label = ai === -1
+    ? "Review — " + done + " of " + FIELDS.length + " complete"
+    : "Question " + (ai + 1) + " of " + FIELDS.length;
+  return '<div class="progress qprogress" role="img" aria-label="' + label + '">' + segs + "</div>";
 }
 
 function renderCard() {
@@ -928,7 +938,7 @@ function renderCard() {
     // review / confirm screen
     // The editable form below already lists every value — don't duplicate it here.
     card.innerHTML =
-      '<div class="qmeta">Review</div>' +
+      progressHTML(ai) +
       '<div class="qtext">Does everything look right?</div>' +
       '<div class="qhint">Say “yes” to submit, or just tell me what to change.</div>';
     bumpAnim(card);
@@ -939,7 +949,7 @@ function renderCard() {
   const val = state.values[f.key];
   const addrLine = f.key === "address" && val ? '<div class="addr-status">' + addrInlineMsg() + "</div>" : "";
   card.innerHTML =
-    '<div class="qmeta">Question ' + (ai + 1) + " of " + FIELDS.length + "</div>" +
+    progressHTML(ai) +
     '<div class="qtext">' + f.q + "</div>" +
     (f.hint ? '<div class="qhint">' + f.hint + "</div>" : "") +
     (val
@@ -1032,7 +1042,7 @@ function rowHTML(f, plain) {
 // Build the editable form ONCE. Later updates only touch input .value / badges,
 // so the user's cursor & focus survive while they type. Two-way bound:
 //   voice  → setField() → renderRail() syncs inputs (+ flash)
-//   typing → input listener → state.values + renderProgress()/renderCard()
+//   typing → input listener → state.values + renderCard()
 function buildForm() {
   const form = $("liveForm");
   if (!form || form.dataset.built) return;
@@ -1109,7 +1119,7 @@ function buildForm() {
         const errs = collectErrors();
         renderErrorSummary(errs, false); // update content but keep focus in the field
       }
-      renderProgress(); renderCard();
+      renderCard();
     };
     input.addEventListener("input", onEdit);
     if (f.select) input.addEventListener("change", onEdit); // selects: cover older browsers too
@@ -1653,7 +1663,7 @@ async function begin() {
     armSessionLimits();
     sub.textContent = "";
     btn.disabled = false;
-    renderProgress(); renderRail(null); renderCard(); renderCaption();
+    renderRail(null); renderCard(); renderCaption();
   } catch (err) {
     console.error(err);
     // name distinguishes a denied mic (NotAllowedError) from a token/ws failure.
@@ -1702,7 +1712,7 @@ const heroVerb = document.getElementById("heroVerb");
 if (heroVerb) heroVerb.textContent = tap;
 
 // Show the editable form + hero focused card right away, before any connection.
-buildForm(); renderProgress(); renderRail(null); renderCard();
+buildForm(); renderRail(null); renderCard();
 
 // Overlay mini-bar: slide it in once the full mic dock scrolls out of the top of
 // the panel, and out again when it returns. Driven by an IntersectionObserver on

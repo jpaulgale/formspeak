@@ -101,7 +101,12 @@ body {
 .progress .seg { flex: 1; height: 4px; border-radius: 0; background: var(--gray-80); overflow: hidden; }
 .progress .seg > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
 .progress .seg.done > i { width: 100%; background: var(--ok); }
+.progress .seg.bad > i { width: 100%; background: var(--red-40); }
 .progress .seg.active > i { width: 100%; }
+
+/* In-card progress: sits where the "Question N of N" counter used to be. */
+.qprogress { margin: 0 0 12px; }
+.qprogress .seg { height: 5px; border-radius: 3px; }
 
 /* ---------- card / stage ---------- */
 .stage { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -119,7 +124,6 @@ body {
 .card.listening {
   box-shadow: 0 8px 24px -10px rgba(0,0,0,.22);
 }
-.qmeta { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 10px; }
 .qtext { font-family: var(--font-display); font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
 .qhint { color: var(--muted); font-size: 15px; margin-top: 8px; line-height: 1.5; }
 .answer {
