@@ -153,7 +153,7 @@ body {
    mini mic delegates to the real one, so pause/resume stays reachable. */
 .minibar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
-  display: none; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 12px; /* kept off-screen via transform until .show */
   padding: max(8px, env(safe-area-inset-top)) 18px 8px;
   background: var(--white); border-bottom: 1px solid var(--line);
   box-shadow: 0 8px 16px -12px rgba(0,0,0,.35);
@@ -186,7 +186,6 @@ body {
 .minibar-cap .cap-line { display: block; }
 .minibar-cap .cap-line b { font-style: normal; font-weight: 700; color: var(--gray-30); }
 .minibar-hint:empty, .minibar-cap:empty { display: none; }
-@media (max-width: 759px) { .minibar { display: flex; } }
 
 /* review screen card uses a list */
 .review-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
@@ -320,7 +319,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   animation: pulse 2s ease-out infinite;
 }
 @keyframes pulse { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.35); opacity: 0; } }
-.mic-label { color: var(--ink); font-size: 14px; font-weight: 600; min-height: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.mic-label { color: var(--ink); font-size: 14px; font-weight: 600; min-height: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center; max-width: 34rem; margin-inline: auto; line-height: 1.4; }
 .mic-sub { color: var(--gray-30); font-size: 12px; margin-top: -4px; }
 
 /* "Try saying" example — models the out-of-order, ramble-and-correct way of
@@ -421,6 +420,10 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* desktop is a floating card, not a scrolling phone column — no sticky header */
   .stickytop, .stickytop.is-stuck { position: static; margin: 0; padding: 0; background: none; box-shadow: none; }
   .appmain { padding-top: 0; }  /* card padding handles top spacing on desktop */
+  /* On desktop the overlay bar still pins to the viewport top when the dock scrolls
+     out of view, but it aligns to the card's column (not full width) with rounded
+     bottom corners, so it reads as the floating card's own pinned header. */
+  .minibar { max-width: 720px; margin-inline: auto; border-radius: 0 0 16px 16px; }
   /* Question card + form pinned to their original (660-card) width and centered,
      so the wider card only adds whitespace around them and the two stay equal.
      width:100% is required: as flex items, margin-inline:auto alone would shrink

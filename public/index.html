@@ -238,6 +238,7 @@ const state = {
   phase: "listening",   // listening | thinking | speaking — drives the dock status
   thinkTimer: null,
   idleTimer: null, hardTimer: null, // session cost caps (idle silence + hard backstop)
+  pauseMsg: "",         // when auto-paused (idle/max), the reason shown in the paused mic label
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
   addrUnit: "",         // apartment/unit (e.g. "#7", "Apt 6D") — geosearch can't resolve it, so we carry it ourselves
@@ -1518,6 +1519,7 @@ function setMicOn(on) {
   state.micOn = on;
   if (state.micStream) state.micStream.getAudioTracks().forEach((t) => (t.enabled = on));
   if (on) {
+    state.pauseMsg = ""; // resuming → drop any auto-pause notice
     state.phase = "listening";
   } else {
     // PTT-style commit on pause. We've just stopped sending frames (micOn=false), so if
@@ -1621,12 +1623,14 @@ function endSession(reason) {
   if (state.submitted || !state.ws) return;
   logEvent("session_capped", { reason, snapshot: fieldsSnapshot() });
   try { state.ws.close(1000, "session_" + reason); } catch {}
-  releaseMic();
   const msg = reason === "max"
     ? "Paused after 10 minutes to keep this free demo's costs down. " + TAP + " the mic to continue — your answers are saved."
     : "Paused after a stretch of quiet to save resources. " + TAP + " the mic to continue — your answers are saved.";
-  const cap = $("caption");
-  if (cap) cap.innerHTML = '<span class="you">' + escapeHTML(msg) + "</span>";
+  // Surface the reason in the paused mic label itself (renderStatus reads pauseMsg),
+  // not as a separate caption line below it — one paused message, in one place. Set it
+  // before releaseMic() so its setMicUI() paints the full message in a single pass.
+  state.pauseMsg = msg;
+  releaseMic();
   announce(msg);
 }
 function setLevel(rms, open) {
@@ -1648,7 +1652,7 @@ function renderStatus() {
     micBtn.classList.remove("listening", "busy");
     micBtn.setAttribute("aria-pressed", "false");
     micBtn.setAttribute("aria-label", "Start microphone");
-    $("micLabel").innerHTML = "<span>Paused — " + tap + " to talk</span>";
+    $("micLabel").innerHTML = "<span>" + (state.pauseMsg ? escapeHTML(state.pauseMsg) : "Paused — " + tap + " to talk") + "</span>";
     if (_lastSaidPhase !== "paused") { announce("Microphone paused."); _lastSaidPhase = "paused"; }
     renderCard(); // keep the hero card's placeholder in sync (not "listening" when paused)
     return;
@@ -1732,6 +1736,7 @@ async function showDone() {
    Boot flow
    ============================================================ */
 async function begin() {
+  state.pauseMsg = ""; // clear any auto-pause notice so the label resets on resume
   const btn = $("micBtn"), sub = $("startSub");
   btn.disabled = true; btn.classList.remove("idle-pulse");
   $("startErr").textContent = "";
@@ -1812,28 +1817,26 @@ if (heroVerb) heroVerb.textContent = tap;
 buildForm(); renderRail(null); renderCard();
 
 // Overlay mini-bar: slide it in once the full mic dock scrolls out of the top of
-// the panel, and out again when it returns. Driven by an IntersectionObserver on
+// the viewport, and out again when it returns. Driven by an IntersectionObserver on
 // the dock (no scroll math, no layout reads) — and because the bar is position:
 // fixed, toggling it overlays the page instead of reflowing it, so there's no
-// scroll jump. Mobile only (on desktop the panel is a floating card, not a
-// scroller, and .minibar is display:none).
+// scroll jump. Runs on every width: observing the viewport (root: null) works for
+// both the mobile phone column (where .app is the scroller) and the desktop floating
+// card (where the window scrolls and .app isn't a scroller) — on desktop the bar
+// aligns to the card column via CSS.
 (() => {
   const minibar = $("minibar");
   const dock = document.querySelector(".dock");
-  const scroller = document.querySelector(".app");
-  if (!minibar || !dock || !scroller) return;
-  const mq = window.matchMedia("(max-width: 759px)");
+  if (!minibar || !dock) return;
   // .inert tracks visibility: when the bar is off-screen it must not be focusable or
   // exposed to assistive tech (that's why we don't aria-hide the container — it holds
   // the focusable mic). show ⇒ interactive; hidden ⇒ inert.
   const setShown = (shown) => { minibar.classList.toggle("show", shown); minibar.inert = !shown; };
   const io = new IntersectionObserver(
-    ([e]) => setShown(mq.matches && !e.isIntersecting),
-    { root: scroller, threshold: 0 }
+    ([e]) => setShown(!e.isIntersecting),
+    { root: null, threshold: 0 }
   );
   io.observe(dock);
-  const onMq = () => { if (!mq.matches) setShown(false); };
-  (mq.addEventListener ? mq.addEventListener("change", onMq) : mq.addListener(onMq));
   // The mini mic is just a proxy for the real control (connect / pause / resume).
   $("miniMic").addEventListener("click", () => $("micBtn").click());
 })();
