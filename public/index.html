@@ -69,7 +69,10 @@
   <main class="appmain">
   <!-- FORM — shown immediately; microphone sits at the top of the form -->
   <div id="formScreen" style="flex:1;display:flex;flex-direction:column;gap:14px;">
-    <h1 class="hero">Just <span id="heroVerb">click</span> the mic and talk.<br><span class="hl">Ramble, correct yourself, answer out of order.</span><br>We'll fill out your NYC benefits form.</h1>
+    <!-- "answer out of order" is a no-break unit (.nb): it stays inline when the
+         line fits and drops to its own line as a whole when it doesn't, so it never
+         breaks mid-phrase into an orphaned "order." -->
+    <h1 class="hero">Just <span id="heroVerb">click</span> the mic and talk.<br><span class="hl">Ramble, correct yourself, <span class="nb">answer out of order.</span></span><br>We'll fill out your NYC benefits form.</h1>
     <!-- mic + transcript + focused question: on mobile this block sticks to the
          top of the viewport so it follows the user down toward the lower fields -->
     <div class="stickytop" id="stickyTop">

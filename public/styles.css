@@ -223,7 +223,7 @@ body {
 .ff-inputwrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* min-width:0 lets the input shrink inside the flex row — without it the native
    date picker / select keep their intrinsic width and spill past the white panel. */
-.ff-input { flex: 1; width: 100%; min-width: 0; max-width: 100%; border: 1.5px solid var(--gray-70); border-radius: 6px; padding: 11px 12px; font: inherit; font-size: 16px; font-weight: 600; color: var(--ink); background: var(--white); transition: border-color .15s, background .15s, box-shadow .15s; }
+.ff-input { flex: 1; width: 100%; min-width: 0; max-width: 100%; border: 1.5px solid var(--gray-70); border-radius: 6px; padding: 11px 12px; font: inherit; font-size: 16px; font-weight: 500; color: var(--ink); background: var(--white); transition: border-color .15s, background .15s, box-shadow .15s; }
 .ff-input::placeholder { color: var(--gray-30); font-weight: 500; }
 .ff-input:focus { outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px var(--accent-soft); }
 textarea.ff-input { resize: none; line-height: 1.3; }
@@ -235,7 +235,7 @@ input[type="date"].ff-input::-webkit-calendar-picker-indicator:hover { opacity: 
    matching .ff-input::placeholder), not the bold 600 the field value inherits.
    Once the field is filled it goes bold ink like every other value. */
 input[type="date"].ff-input::-webkit-datetime-edit { font-weight: 500; color: var(--gray-30); }
-.ff.filled input[type="date"].ff-input::-webkit-datetime-edit { font-weight: 600; color: var(--ink); }
+.ff.filled input[type="date"].ff-input::-webkit-datetime-edit { font-weight: 500; color: var(--ink); }
 /* Dropdown: same field chrome plus a custom chevron (native arrow removed). */
 select.ff-select { cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none;
   padding-right: 36px;
@@ -367,6 +367,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .screen h1 { font-family: var(--font-display); font-size: 34px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
 .hl { color: var(--accent); }  /* Blue 40 #103FEF — ~7:1 on white, AAA */
 .hero { font-family: var(--font-display); font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.14; text-align: center; color: var(--ink); }
+.nb { white-space: nowrap; } /* wrap as one unit — never break "answer out of order" mid-phrase */
 .screen p { color: var(--gray-30); font-size: 16px; max-width: 320px; line-height: 1.55; }
 .pillrow { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .pill { font-size: 13px; font-weight: 600; color: var(--gray-20); background: var(--gray-90); border: 1px solid var(--line); padding: 6px 12px; border-radius: 99px; }
@@ -403,10 +404,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* float the panel as a centered card instead of a full-height phone column */
   body { align-items: flex-start; }
   .app {
-    /* 720 (not 660) so the headline's "Ramble, correct yourself, answer out of
-       order." line fits at full 32px without orphaning a word. The form itself is
-       pinned back to its original width below, so only the whitespace grows. */
-    max-width: 720px;
+    max-width: 660px;
     min-height: auto;
     align-self: flex-start;
     margin: 40px auto;
@@ -420,11 +418,8 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   /* desktop is a floating card, not a scrolling phone column — no sticky header */
   .stickytop, .stickytop.is-stuck { position: static; margin: 0; padding: 0; background: none; box-shadow: none; }
   .appmain { padding-top: 0; }  /* card padding handles top spacing on desktop */
-  /* two-column editable form; address + submit + hint span the full width.
-     max-width pins it to its pre-720 width so widening the card only adds
-     whitespace around the form, not to the form. */
+  /* two-column editable form; address + submit + hint span the full width */
   .liveform { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 13px 13px 15px;
-    max-width: 608px; margin-inline: auto; width: 100%;
     display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: start; }
   .nyc-errorsummary,
   .liveform .ff[data-key="address"],
