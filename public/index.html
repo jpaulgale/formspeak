@@ -252,7 +252,7 @@ const state = {
   },
   // --- acoustic echo suppression ---
   playUntil: 0,       // ms timestamp: assistant audio is playing out the speaker until here
-  echo: { level: 0 }, // learned RMS of the speaker→mic bleed while the assistant speaks
+  echo: { level: 0, seedMin: 0, seedN: 0 }, // learned RMS of the speaker→mic bleed (+ seed calibration)
 };
 
 const GATE_HANGOVER_MS = 400; // keep streaming briefly after speech dips
@@ -268,6 +268,8 @@ const ECHO_TAIL_MS = 250; // keep suppressing briefly after playback ends (room 
 const ECHO_EMA = 0.05;    // how fast the echo-level estimate tracks (low = stable)
 const ECHO_MARGIN = 3.0;  // mic RMS must exceed this × the echo level to count as the
                           // user barging in; anything below is treated as echo → dropped
+const ECHO_SEED_FRAMES = 5; // calibrate the echo level over the first ~5 frames (~320ms)
+                          // of each utterance instead of latching the first one — see below
 // While the assistant is speaking, a real barge-in must SUSTAIN for this many frames
 // before we forward it. A single echo/noise spike that sneaks past the floor isn't
 // enough to crush the reply — only ~190ms of continuous above-floor audio (1024-sample
@@ -1462,10 +1464,23 @@ async function startMic() {
     const ec = state.echo;
     const echoing = now < state.playUntil + ECHO_TAIL_MS;
     if (echoing) {
-      if (ec.level <= 0) ec.level = rms;                              // seed
-      else if (rms < ec.level * ECHO_MARGIN) ec.level += ECHO_EMA * (rms - ec.level);
+      if (ec.seedN < ECHO_SEED_FRAMES) {
+        // Calibration window. The first frames after playback starts are captured while
+        // the browser AEC is still converging, so the very first one is a loud, barely
+        // cancelled peak. Latching the floor to that single frame (the old behavior)
+        // pinned the gate high for the whole greeting — you couldn't barge in. Instead
+        // take the MIN across the first few frames: as the AEC converges the bleed falls,
+        // so the running min is the best estimate of the steady-state bleed and the floor
+        // stays low enough to barge in meanwhile. Headphones/quiet → min ~0 (unchanged);
+        // phone-on-speaker → min lands on the real converged bleed (protection preserved).
+        ec.seedMin = ec.seedMin > 0 ? Math.min(ec.seedMin, rms) : rms;
+        ec.seedN++;
+        ec.level = ec.seedMin;
+      } else if (rms < ec.level * ECHO_MARGIN) {
+        ec.level += ECHO_EMA * (rms - ec.level); // track the bleed up/down once calibrated
+      }
     } else {
-      ec.level = 0; // assistant silent → nothing to suppress (full duplex resumes)
+      ec.level = 0; ec.seedMin = 0; ec.seedN = 0; // assistant silent → re-calibrate next utterance, full duplex resumes
     }
     const echoFloor = echoing ? ec.level * ECHO_MARGIN : 0;
 
@@ -1732,8 +1747,14 @@ async function begin() {
   try {
     sub.textContent = "Getting ready…";
     const token = await getToken();
-    await connect(token);
-    await startMic();
+    // Bring the mic up concurrently with the socket so the AudioContext / browser AEC
+    // start adapting during the connect + greeting-TTS latency — before the greeting
+    // plays out the speaker. Without this the mic comes up cold exactly as the (loud,
+    // longest) greeting hits the speaker, and the echo floor below seeds to that
+    // uncancelled peak, pinning the gate high for the whole first message so you can't
+    // barge in. sendAudio() is guarded on ws OPEN, so frames captured before the socket
+    // is ready just no-op. Promise.all consumes both rejections (no unhandled reject).
+    await Promise.all([connect(token), startMic()]);
     armSessionLimits();
     sub.textContent = "";
     btn.disabled = false;
