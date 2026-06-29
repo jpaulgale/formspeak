@@ -147,6 +147,22 @@ INDEX_HTML = r"""<!doctype html>
   .sys.done span{background:#e7f7ec;color:var(--ok);font-weight:600}
   .refresh{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:8px;
     padding:5px 11px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted)}
+  /* back button: only shown on the mobile list↔detail view */
+  .mback{display:none;border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:6px 12px;margin-bottom:10px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--accent)}
+  /* Mobile: stack list and detail, show one at a time. body.detail = detail visible. */
+  @media (max-width:720px){
+    body{display:block;height:auto;overflow:auto}
+    aside{width:100%;height:100vh;border-right:none}
+    main{display:none;height:100vh}
+    body.detail aside{display:none}
+    body.detail main{display:flex}
+    .mback{display:inline-flex}
+    .stream{padding:16px 14px 60px}
+    .mhead{padding:14px 16px}
+    .bubble{max-width:86%}
+    .tool{max-width:96%}
+  }
 </style></head>
 <body>
   <aside>
@@ -164,6 +180,7 @@ INDEX_HTML = r"""<!doctype html>
   </aside>
   <main>
     <div class="mhead" id="mhead" style="display:none">
+      <button class="mback" id="mback">← All sessions</button>
       <h2 id="mtitle"></h2>
       <div class="line" id="mmeta"></div>
     </div>
@@ -216,8 +233,10 @@ function verdict(t,res){
 }
 const ICON={ok:"✓",warn:"⚠",bad:"✗"};
 
+$("#mback").onclick=()=>document.body.classList.remove("detail");
 function open(id){
   SEL=id; render();
+  document.body.classList.add("detail");  // mobile: swap list → detail view
   fetch("/api/session/"+id).then(r=>r.json()).then(d=>draw(d));
   $("#stream").innerHTML=`<div class="empty">loading…</div>`;
 }
@@ -237,40 +256,53 @@ function draw(d){
     s.user_agent&&`🖥 ${esc(uaShort(s.user_agent))}`,
   ].filter(Boolean).map(x=>`<span>${x}</span>`).join("");
 
-  let html="";
+  // The client logs each tool_call the instant it arrives, but a turn's user
+  // speech is only flushed at turnComplete — so by seq the user bubble lands
+  // AFTER the set_field calls that very speech triggered, making fields look
+  // self-filled. We collect into an array and hoist each turn's user bubble
+  // above the contiguous run of tool calls right before it (the asst reply,
+  // which logically follows the calls, stays put). Every tool call is kept.
+  const parts=[];
+  let runStart=-1;  // index where the current unbroken tool_call run began, or -1
   for(const e of ev){
     const t=e.type, x=e.data||{};
     if(t==="session_start"){
       const bits=[x.resume?"resumed":"fresh start",x.lang,x.tz].filter(Boolean).join(" · ");
-      html+=`<div class="sys start"><span>session started — ${esc(bits)}</span></div>`;
+      parts.push(`<div class="sys start"><span>session started — ${esc(bits)}</span></div>`); runStart=-1;
     }else if(t==="turn"){
-      if(x.user) html+=bubble("user",x.user);
-      if(x.asst) html+=bubble("asst",x.asst);
+      // Hoist the user's words above the tool calls they drove; keep the reply below.
+      if(x.user){
+        const u=bubble("user",x.user);
+        if(runStart>=0) parts.splice(runStart,0,u); else parts.push(u);
+      }
+      if(x.asst) parts.push(bubble("asst",x.asst));
+      runStart=-1;
     }else if(t==="tool_call"){
       const v=verdict(x.name,x.result);
       const a=x.args||{};
       const label = x.name==="set_field"
         ? `set <b>${esc(a.field||"?")}</b> → “${esc(a.value??"")}”`
         : `<b>${esc(x.name)}</b>(${esc(Object.entries(a).map(([k,val])=>k+"="+JSON.stringify(val)).join(", "))})`;
-      html+=`<div class="tool ${v}"><div class="tick">${ICON[v]}</div><div class="body">
+      if(runStart<0) runStart=parts.length;  // mark start of this contiguous run
+      parts.push(`<div class="tool ${v}"><div class="tick">${ICON[v]}</div><div class="body">
         <div class="name">${label}</div>
-        ${x.result?`<div class="res">${esc(x.result)}</div>`:""}</div></div>`;
+        ${x.result?`<div class="res">${esc(x.result)}</div>`:""}</div></div>`);
     }else if(t==="ws_close"){
       const cls=(x.code===1000||x.code===1005)?"":"bad";
-      html+=`<div class="sys ${cls}"><span>connection closed — code ${esc(x.code)}${x.reason?" · "+esc(x.reason):""}${x.shown?" · “"+esc(x.shown)+"”":""}</span></div>`;
+      parts.push(`<div class="sys ${cls}"><span>connection closed — code ${esc(x.code)}${x.reason?" · "+esc(x.reason):""}${x.shown?" · “"+esc(x.shown)+"”":""}</span></div>`); runStart=-1;
     }else if(t==="ws_error"){
-      html+=`<div class="sys bad"><span>websocket error</span></div>`;
+      parts.push(`<div class="sys bad"><span>websocket error</span></div>`); runStart=-1;
     }else if(t==="error"){
-      html+=`<div class="sys bad"><span>error (${esc(x.where||"")}) ${esc(x.name||"")} ${esc(x.message||"")}</span></div>`;
+      parts.push(`<div class="sys bad"><span>error (${esc(x.where||"")}) ${esc(x.name||"")} ${esc(x.message||"")}</span></div>`); runStart=-1;
     }else if(t==="submit_saved"){
-      html+=`<div class="sys done"><span>✓ submission saved to D1</span></div>`;
+      parts.push(`<div class="sys done"><span>✓ submission saved to D1</span></div>`); runStart=-1;
     }else if(t==="session_end"){
       const f=(x.filled||[]).length;
-      html+=`<div class="sys"><span>session ended — ${f} field(s) filled${x.submitted?", submitted":""}</span></div>`;
+      parts.push(`<div class="sys"><span>session ended — ${f} field(s) filled${x.submitted?", submitted":""}</span></div>`); runStart=-1;
     }else if(t==="ws_ready"){ /* quiet */ }
-    else html+=`<div class="sys"><span>${esc(t)}</span></div>`;
+    else { parts.push(`<div class="sys"><span>${esc(t)}</span></div>`); runStart=-1; }
   }
-  $("#stream").innerHTML=html||`<div class="empty">No events.</div>`;
+  $("#stream").innerHTML=parts.join("")||`<div class="empty">No events.</div>`;
 }
 function bubble(who,text){
   return `<div class="turn ${who}"><div><div class="who">${who==="user"?"user":"FormSpeak"}</div>`
@@ -321,9 +353,20 @@ def main() -> None:
         refresh()  # one round trip; fail fast if wrangler/auth is broken
     except Exception as e:  # noqa: BLE001
         sys.exit(f"Couldn't read D1 via wrangler:\n{e}")
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    # Bind all interfaces so the dashboard is reachable over Tailscale, not just
+    # localhost. (127.0.0.1 is invisible to the tailnet.)
+    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"FormSpeak telemetry dashboard → {url}  (Ctrl-C to stop)")
+    # If Tailscale is up, surface the tailnet URL so it can be opened from any device.
+    try:
+        ts_ip = subprocess.run(
+            ["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=3
+        ).stdout.strip().splitlines()
+        if ts_ip:
+            print(f"  via Tailscale → http://{ts_ip[0]}:{PORT}")
+    except Exception:  # noqa: BLE001
+        pass
     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         srv.serve_forever()
