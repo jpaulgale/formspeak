@@ -231,6 +231,11 @@ textarea.ff-input { resize: none; line-height: 1.3; }
 input[type="date"].ff-input { color-scheme: light; cursor: pointer; min-height: 46px; }
 input[type="date"].ff-input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .65; filter: invert(13%) sepia(99%) saturate(7000%) hue-rotate(353deg); }
 input[type="date"].ff-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+/* Empty date shows mm/dd/yyyy — render it like a placeholder (gray, weight 500,
+   matching .ff-input::placeholder), not the bold 600 the field value inherits.
+   Once the field is filled it goes bold ink like every other value. */
+input[type="date"].ff-input::-webkit-datetime-edit { font-weight: 500; color: var(--gray-30); }
+.ff.filled input[type="date"].ff-input::-webkit-datetime-edit { font-weight: 600; color: var(--ink); }
 /* Dropdown: same field chrome plus a custom chevron (native arrow removed). */
 select.ff-select { cursor: pointer; appearance: none; -webkit-appearance: none; -moz-appearance: none;
   padding-right: 36px;
@@ -293,7 +298,8 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .caption { min-height: 20px; color: var(--gray-20); font-size: 15px; line-height: 1.45; text-align: center; padding: 0 6px; overflow-wrap: anywhere; }
 .caption:empty { display: none; }
 .caption b { color: var(--accent); font-weight: 700; }
-.caption .you { color: var(--ink); font-weight: 600; }
+.caption .you { color: var(--ink); font-weight: 400; }
+.caption .you strong { font-weight: 700; } /* only the "You:" label is bold, not the transcript */
 
 /* ---------- mic button ---------- */
 .dock { display: flex; flex-direction: column; align-items: center; gap: 9px; }
@@ -318,15 +324,10 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .mic-label { color: var(--ink); font-size: 14px; font-weight: 600; min-height: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .mic-sub { color: var(--gray-30); font-size: 12px; margin-top: -4px; }
 
-/* Pre-start "try saying" example — models the out-of-order, ramble-and-correct
-   way of talking to FormSpeak. Fades in after first paint so it doesn't compete
-   with load; .gone collapses it once a session begins. */
-.tryline {
-  max-width: 30rem; margin: 4px auto 0; padding: 0 12px; text-align: center;
-  opacity: 0; transform: translateY(4px); transition: opacity .5s ease, transform .5s ease;
-}
-.tryline.in { opacity: 1; transform: none; }
-.tryline.gone { display: none; }
+/* "Try saying" example — models the out-of-order, ramble-and-correct way of
+   talking to FormSpeak. Sits above the mic and stays put (people read it aloud
+   to test), so it's static — no fade, no auto-hide. */
+.tryline { max-width: 32rem; margin: 0 auto 14px; padding: 0 12px; text-align: center; }
 .tryline-lead { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
 .tryline-quote { display: block; margin-top: 4px; font-style: italic; font-size: 15px; line-height: 1.45; color: var(--gray-20); }
 

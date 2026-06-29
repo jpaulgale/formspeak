@@ -73,6 +73,13 @@
     <!-- mic + transcript + focused question: on mobile this block sticks to the
          top of the viewport so it follows the user down toward the lower fields -->
     <div class="stickytop" id="stickyTop">
+    <!-- "Try saying" example: shows HOW to talk to FormSpeak — answers out of
+         order, several fields at once, two late spelling fixes. Sits above the mic
+         and stays put (it doubles as a script people can read aloud to test). -->
+    <div class="tryline" id="tryLine">
+      <span class="tryline-lead">Answer in any order — try saying:</span>
+      <span class="tryline-quote">“There’s four of us, I make $30,000 annually. Name’s John Doe, 100 Park Place in Brooklyn — oh, Dough, like D-O-U-G-H, and J-O-N.”</span>
+    </div>
     <div class="dock">
       <div class="mic-wrap"><div class="ring" id="ring"></div>
         <button class="mic idle-pulse" id="micBtn" type="button" aria-pressed="false" aria-label="Start microphone">
@@ -82,13 +89,6 @@
       <div class="mic-label" id="micLabel">Tap to start</div><!-- replaced on load with pointer-aware verb -->
       <div class="mic-sub" id="startSub"></div>
       <div class="err" id="startErr"></div>
-    </div>
-    <!-- Pre-start "try saying" example: shows HOW to talk to FormSpeak — answers
-         out of order, several fields at once, a late spelling fix. Hidden once a
-         session begins (begin() adds .gone). -->
-    <div class="tryline" id="tryLine">
-      <span class="tryline-lead">Answer in any order — try saying:</span>
-      <span class="tryline-quote">“There’s four of us, I’m John Doe over at 100 Park Place in Brooklyn — oh, Doe with an E, D-O-E.”</span>
     </div>
     <!-- live transcript: sits under the mic, above the form -->
     <div class="caption" id="caption" role="log" aria-live="polite" aria-label="Conversation transcript"></div>
@@ -1332,7 +1332,7 @@ function renderCaption() {
   const a = denoiseTranscript(state.asstBuf || state.lastAsst || "");
   $("caption").innerHTML =
     (a ? "<b>FormSpeak:</b> " + escapeHTML(a) + "<br>" : "") +
-    (u ? '<span class="you">You: ' + escapeHTML(u) + "</span>" : "");
+    (u ? '<span class="you"><strong>You:</strong> ' + escapeHTML(u) + "</span>" : "");
 
   // Mini-bar transcript: show the last exchange in chronological order — your reply
   // first, then FormSpeak's line after it (a turn arrives as your speech, then its
@@ -1650,7 +1650,6 @@ async function showDone() {
 async function begin() {
   const btn = $("micBtn"), sub = $("startSub");
   btn.disabled = true; btn.classList.remove("idle-pulse");
-  const tl = $("tryLine"); if (tl) tl.classList.add("gone"); // the example has served its purpose
   $("startErr").textContent = "";
   if (!tlog.startSent) {
     tlog.startSent = true;
@@ -1718,12 +1717,6 @@ $("micLabel").textContent = TAP + " to start";
 // Pointer-aware hero verb ("click" on desktop, "tap" on touch).
 const heroVerb = document.getElementById("heroVerb");
 if (heroVerb) heroVerb.textContent = tap;
-
-// Fade the "try saying" example in just after first paint (two rAFs so the
-// initial opacity:0 is committed before the transition target flips).
-requestAnimationFrame(() => requestAnimationFrame(() => {
-  const tl = $("tryLine"); if (tl) tl.classList.add("in");
-}));
 
 // Show the editable form + hero focused card right away, before any connection.
 buildForm(); renderRail(null); renderCard();
