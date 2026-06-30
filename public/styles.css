@@ -119,11 +119,14 @@ body {
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   padding: 26px 22px 22px; position: relative; overflow: hidden;
-  /* Floor so the common single-line question card is a consistent height — without
-     it, each field's content height set the card's size and the form below bounced
-     on every transition. Taller cards (2-line questions, the address inline message)
-     still grow past it; this just stops the short-card jitter. */
-  min-height: 168px;
+  /* Hold one constant height so the card never resizes between questions and the
+     form below it stays put. We can't hardcode it: the tallest question wraps to a
+     different number of lines at each width and once the display font loads, so
+     syncCardHeight() measures the tallest header across every question at the live
+     card width and publishes it as --qcard-h; shorter questions floor up to it.
+     168px is just the pre-measurement fallback. The address field's inline verify
+     message is the one deliberate exception that still grows past this. */
+  min-height: var(--qcard-h, 168px);
   transition: border-color .2s ease, box-shadow .2s ease;
 }
 /* The card stays forward for the whole live session — on as long as the mic is
@@ -228,7 +231,10 @@ body {
 .ff { display: flex; flex-direction: column; gap: 5px; border-radius: 4px; padding: 6px 8px; transition: background .5s ease; }
 /* Instant-on, fade-off (see .row.flash) — snap the highlight in, settle it out. */
 .ff.flash { background: var(--flash); transition: none; }
-.ff-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
+/* Reserve the badge row's full height (centered) so swapping the ✓ / ⚠ pill in and
+   out — or showing nothing — never changes the label row's height. 22px clears the
+   tallest state, the ⚠ pill (~21px); the ✓ and bare label sit shorter and center. */
+.ff-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
 .ff-lab { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .ff-badge { display: inline-flex; align-items: center; }
 .ff-check { color: var(--ok-text); font-weight: 800; font-size: 14px; }

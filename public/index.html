@@ -1059,6 +1059,52 @@ function progressHTML(ai) {
   return '<div class="progress qprogress" role="img" aria-label="' + label + '">' + segs + "</div>";
 }
 
+// The review screen's question, included alongside FIELDS when measuring the
+// tallest header (it's the one card not backed by a FIELDS entry).
+const REVIEW_QHEAD = { q: "Does everything look right?", hint: "Say “yes” to submit, or just tell me what to change." };
+
+// Pin the question card to one constant height so it never resizes as questions of
+// different lengths roll by (which used to bounce the whole form below it). Rather
+// than hardcode a height — the tallest question wraps to a different line count at
+// each viewport width and once the display font finishes loading — measure every
+// question's header (qtext + qhint) at the live card's content width, take the
+// tallest, and add it to the card's fixed overhead (progress + answer + padding).
+// The result is published as the --qcard-h floor every card honours. Re-run on
+// resize and after the display font loads, since both change the wrap.
+function syncCardHeight() {
+  const card = $("qcard");
+  if (!card || !card.clientWidth) return;
+  // We read the card's non-header overhead (progress + answer + padding) off the
+  // live card, so we need a normal field card on screen — not the answer-less review
+  // screen, and not the address field while its inline verify message is up (that's
+  // the documented exception that's allowed to grow past the floor).
+  const head = card.querySelector(".qhead");
+  if (!head || !card.querySelector(".answer") || card.querySelector(".addr-status")) return;
+  const cs = getComputedStyle(card);
+  const w = card.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  if (w <= 0) return;
+
+  // Tallest header (qtext + qhint) across every question at this width.
+  const m = document.createElement("div");
+  m.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden;width:" + w + "px;";
+  document.body.appendChild(m);
+  let maxHead = 0;
+  for (const v of [...FIELDS, REVIEW_QHEAD]) {
+    m.innerHTML = '<div class="qtext">' + v.q + "</div>" + (v.hint ? '<div class="qhint">' + v.hint + "</div>" : "");
+    maxHead = Math.max(maxHead, m.getBoundingClientRect().height);
+  }
+  m.remove();
+
+  // Read the overhead from the card's *natural* height, not its current floored
+  // height — otherwise each run would measure the floor we set last time and ratchet
+  // it upward. Drop the floor to 0, read, then commit the new one (all synchronous,
+  // so the 0 never paints).
+  const rs = document.documentElement.style;
+  rs.setProperty("--qcard-h", "0px");
+  const overhead = card.getBoundingClientRect().height - head.getBoundingClientRect().height;
+  rs.setProperty("--qcard-h", Math.ceil(overhead + maxHead) + "px");
+}
+
 function renderCard() {
   const card = $("qcard");
   if (!card) return; // question card removed — the live form is the primary view
@@ -1087,8 +1133,10 @@ function renderCard() {
     // The editable form below already lists every value — don't duplicate it here.
     card.innerHTML =
       progressHTML(ai) +
-      '<div class="qtext">Does everything look right?</div>' +
-      '<div class="qhint">Say “yes” to submit, or just tell me what to change.</div>';
+      '<div class="qhead">' +
+        '<div class="qtext">Does everything look right?</div>' +
+        '<div class="qhint">Say “yes” to submit, or just tell me what to change.</div>' +
+      '</div>';
     bumpAnim(card);
     return;
   }
@@ -1118,8 +1166,10 @@ function renderCard() {
   }
   card.innerHTML =
     progressHTML(ai) +
-    '<div class="qtext">' + f.q + "</div>" +
-    (f.hint ? '<div class="qhint">' + f.hint + "</div>" : "") +
+    '<div class="qhead">' +
+      '<div class="qtext">' + f.q + "</div>" +
+      (f.hint ? '<div class="qhint">' + f.hint + "</div>" : "") +
+    "</div>" +
     answerHTML +
     addrLine;
   bumpAnim(card);
@@ -1970,6 +2020,17 @@ if (heroVerb) heroVerb.textContent = tap;
 
 // Show the editable form + hero focused card right away, before any connection.
 buildForm(); renderRail(null); renderCard();
+
+// Lock the question card to its tallest height so it never resizes between
+// questions. Measure now, again once the display font swaps in (it changes the
+// wrap), and on resize (debounced — the breakpoint and width both shift the wrap).
+syncCardHeight();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncCardHeight);
+let cardHeightTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(cardHeightTimer);
+  cardHeightTimer = setTimeout(syncCardHeight, 150);
+});
 
 // Overlay mini-bar: slide it in once the full mic dock scrolls out of the top of
 // the viewport, and out again when it returns. Driven by an IntersectionObserver on
