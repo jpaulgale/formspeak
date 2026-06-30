@@ -1,0 +1,7 @@
+# Airtable Blocks build + local block-install metadata
+.tmp/
+node_modules/
+.block/
+build/
+*.log
+.DS_Store
