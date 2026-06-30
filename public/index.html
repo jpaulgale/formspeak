@@ -244,7 +244,8 @@ const state = {
   // we pin it on the just-answered field and "type" the value in, so the viewer sees it
   // land. pinKey holds that field; revealN is how many chars are typed so far.
   pinKey: null, revealN: 0, revealTimer: null,
-  editKey: null,        // a form field the user is actively editing → the card follows it live
+  focusKey: null,       // field the user is manually editing (has DOM focus) → the card holds
+                        // on it and won't advance until they leave, even once it has a value
   addrStatus: "idle",   // idle | checking | ok | none — NYC geosearch confirmation
   addrBorough: "",
   addrUnit: "",         // apartment/unit (e.g. "#7", "Apt 6D") — geosearch can't resolve it, so we carry it ourselves
@@ -918,11 +919,14 @@ function activeIndex() {
 // but during a reveal we pin it on the just-answered field while its value types in
 // (state.pinKey) — so the card lingers there instead of jumping ahead immediately.
 function displayedIndex() {
-  // A field the user is actively editing wins (the card mirrors their edits live), then
-  // a reveal in progress, then the normal "first unfilled field".
-  const key = state.editKey != null ? state.editKey : state.pinKey;
-  if (key != null) {
-    const i = FIELDS.findIndex((f) => f.key === key);
+  // Hold the card on a field the user is manually editing, so it doesn't skip to the next
+  // field the instant what they've typed counts as "filled" — it advances when they leave.
+  if (state.focusKey != null) {
+    const i = FIELDS.findIndex((f) => f.key === state.focusKey);
+    if (i !== -1) return i;
+  }
+  if (state.pinKey != null) {
+    const i = FIELDS.findIndex((f) => f.key === state.pinKey);
     if (i !== -1) return i;
   }
   return activeIndex();
@@ -1097,10 +1101,12 @@ function renderCard() {
   // revealN characters, with a caret trailing until it's fully typed. Otherwise show
   // the whole value (or the listening placeholder when empty).
   let answerHTML;
-  if (state.editKey === f.key) {
-    // Mirroring a live form edit: show the current value with a trailing caret (even when
-    // empty), so the card reads as the input the user is typing into — not the mic prompt.
-    answerHTML = '<div class="answer">' + escapeHTML(val || "") + '<span class="caret"></span></div>';
+  if (state.focusKey === f.key) {
+    // The user is typing this field in directly on the form. Hold the card here, but DON'T
+    // mirror the keystrokes — the value lives in the input below, and echoing it (with a
+    // caret) made the card read like a second place to type. Voice fills still animate in
+    // via pinKey above.
+    answerHTML = '<div class="answer empty muted">Editing below…</div>';
   } else if (val && state.pinKey === f.key) {
     const typed = escapeHTML(val.slice(0, state.revealN));
     const stillTyping = state.revealN < val.length;
@@ -1205,6 +1211,24 @@ function rowHTML(f, plain) {
   );
 }
 
+// The voice model can't see the screen, so a value the user types in by hand is invisible
+// to it — left unaware, it keeps asking for fields that are already filled. After a manual
+// edit settles (on blur), push a one-line note over the same socket as the user's turns.
+// turnComplete:false means it's appended to the model's context WITHOUT prompting it to
+// speak — so it silently updates the model's priors, folded into its next real turn.
+function notifyModelManualEdit(f) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  const v = state.values[f.key];
+  const note = v
+    ? 'The user just filled "' + f.label + '" themselves, directly on the form. It now reads "' + v +
+      '". Treat it as already provided — do not ask for it again; only revisit it if they raise it or it needs correcting.'
+    : 'The user just cleared "' + f.label + '" on the form. It is empty again and still needs to be collected.';
+  state.ws.send(JSON.stringify({
+    clientContent: { turns: [{ role: "user", parts: [{ text: "[form update] " + note }] }], turnComplete: false },
+  }));
+  logEvent("manual_edit", { key: f.key, value: v || "" });
+}
+
 // Build the editable form ONCE. Later updates only touch input .value / badges,
 // so the user's cursor & focus survive while they type. Two-way bound:
 //   voice  → setField() → renderRail() syncs inputs (+ flash)
@@ -1278,6 +1302,9 @@ function buildForm() {
       const badge = wrap.querySelector(".ff-badge");
       if (badge) badge.innerHTML = f.key === "address"
         ? addrBadge() // addrStatus is now "idle" → clears the old ✓ borough chip
+        // Phone: don't nag "needs 10 digits" mid-typing — show ✓ once valid, but hold the
+        // ⚠ reason until the user leaves the field (the blur handler surfaces it).
+        : (f.key === "phone" && !phoneConfirmed(state.values.phone)) ? ""
         : fieldBadge(f, state.values[f.key]); // ✓ or a ⚠ reason for ssn / date_of_birth
       wrap.classList.remove("invalid"); // editing clears this field's error mark
       // If the summary is showing, refresh it live as problems get fixed.
@@ -1285,17 +1312,30 @@ function buildForm() {
         const errs = collectErrors();
         renderErrorSummary(errs, false); // update content but keep focus in the field
       }
-      // Pull the hero card onto the field being edited so the edit shows up there live.
-      // Cancel any in-flight reveal — the user's direct edit takes over the card.
-      state.editKey = f.key;
-      if (state.revealTimer) { clearInterval(state.revealTimer); state.revealTimer = null; state.pinKey = null; }
       renderCard();
     };
     input.addEventListener("input", onEdit);
     if (f.select) input.addEventListener("change", onEdit); // selects: cover older browsers too
-    // Leaving the field hands the card back to the normal active-field flow.
+
+    // Hold the hero card on whatever field has focus (see displayedIndex), so manual typing
+    // doesn't make the card skip ahead the moment a field is non-empty. Remember the value on
+    // the way in so we can tell, on the way out, whether the user actually changed anything.
+    let focusVal = "";
+    input.addEventListener("focus", () => {
+      focusVal = state.values[f.key] || "";
+      state.focusKey = f.key;
+      renderCard();
+    });
     input.addEventListener("blur", () => {
-      if (state.editKey === f.key) { state.editKey = null; renderCard(); }
+      if (state.focusKey === f.key) state.focusKey = null; // hand the card back to the active-field flow
+      // Phone validation is held back while typing; surface the ⚠ reason (or ✓) on the way out.
+      if (f.key === "phone") {
+        const badge = input.closest(".ff")?.querySelector(".ff-badge");
+        if (badge) badge.innerHTML = state.values.phone ? fieldBadge(f, state.values.phone) : "";
+      }
+      // If they actually edited it by hand, let the voice model know so it stops re-asking.
+      if ((state.values[f.key] || "") !== focusVal) notifyModelManualEdit(f);
+      renderCard();
     });
   });
 
