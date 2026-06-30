@@ -3,6 +3,7 @@
   "name": "formspeak",
   "pages_build_output_dir": "./public",
   "compatibility_date": "2025-06-01",
+  "observability": { "enabled": true },
   "d1_databases": [
     {
       "binding": "DB",
