@@ -1,21 +1,21 @@
 // ============================================================================
-// FormSpeak for Airtable — entry point.
+// FormSpeak for Airtable — Interface Extension entry point (interface-alpha SDK).
 //
-// Reads a view's fields (in view order), renders them as a form you can fill by
-// TYPING or by TALKING (Gemini Live), and on submit creates a record in the
-// submission table. The schema and the current user's name are injected into
-// the Gemini context dynamically at connect time (see geminiContext.js).
+// Reads a table's fields (in field order), renders them as a form you can fill
+// by TYPING or by TALKING (Gemini Live), and on submit creates a record in the
+// submission table. The field schema and the current user's name
+// (session.currentUser.name) are injected into the Gemini context dynamically
+// at every connect (see geminiContext.js).
 //
-// Airtable Blocks SDK conventions honoured here:
-//   • Exactly one initializeBlock(() => <App/>) call is the whole entry point.
-//   • Everything reactive comes from hooks (useBase, useSession, useGlobalConfig,
-//     useViewMetadata, useSettingsButton) — never poll, never reach outside React.
-//   • useViewMetadata(view).visibleFields IS the schema call, already ordered.
-//   • Writes go through createRecordAsync after a hasPermissionToCreateRecord
-//     check, with cell values shaped per field type (see schema.js).
-//   • The extension runs in a sandboxed cross-origin iframe, so the microphone
-//     may be unavailable; voice is a progressive enhancement and the typed form
-//     always works.
+// Interface Extensions SDK rules honoured (see SKILL.md):
+//   • initializeBlock({interface: () => <App/>})  — NOT initializeBlock(() => …)
+//   • Imports ONLY from @airtable/blocks/interface/{ui,models}.
+//   • NO SDK UI components — plain HTML + Tailwind only.
+//   • Config via useCustomProperties (getCustomProperties is module-scoped).
+//   • field.config.type for type checks; table.getFieldIfExists for lookups.
+//   • Writes: hasPermissionToCreateRecords([{fields}]) then createRecordAsync.
+//   • Extensions run in a sandboxed cross-origin iframe → the microphone may be
+//     blocked; voice is progressive enhancement, the typed form always works.
 // ============================================================================
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -23,79 +23,68 @@ import {
     initializeBlock,
     useBase,
     useSession,
-    useSettingsButton,
-    useViewMetadata,
-    Box,
-    Button,
-    Heading,
-    Text,
-    Input,
-    Select,
-    Switch,
-    FormField,
-    Loader,
-    Icon,
-} from "@airtable/blocks/ui";
+    useCustomProperties,
+    useColorScheme,
+} from "@airtable/blocks/interface/ui";
 
-import { Settings, useSettings } from "./settings";
+import { getCustomProperties, DEFAULT_TOKEN_ENDPOINT } from "./config";
 import { buildSchema, describeField, coerceCellValue } from "./schema";
 import { buildSystemInstruction, buildTools } from "./geminiContext";
 import { useGeminiLive } from "./useGeminiLive";
+import "./style.css";
 
 const MODEL = "gemini-3.1-flash-live-preview";
 const VOICE = "Aoede";
 
 function FormSpeakApp() {
-    const [showSettings, setShowSettings] = useState(false);
-    useSettingsButton(() => setShowSettings((v) => !v));
+    const base = useBase();
+    const { customPropertyValueByKey, errorState } =
+        useCustomProperties(getCustomProperties);
 
-    const settings = useSettings();
-
-    if (showSettings || !settings.isConfigured) {
+    if (errorState) {
         return (
-            <Box>
-                {!settings.isConfigured && (
-                    <Box padding={3} paddingBottom={0}>
-                        <Text textColor="light">
-                            Pick the view whose fields should become the form, then a place
-                            to submit records.
-                        </Text>
-                    </Box>
-                )}
-                <Settings />
-                {settings.isConfigured && (
-                    <Box padding={3} paddingTop={0}>
-                        <Button onClick={() => setShowSettings(false)} variant="primary">
-                            Done
-                        </Button>
-                    </Box>
-                )}
-            </Box>
+            <Shell>
+                <p className="text-sm text-red-red">Error: {errorState.message}</p>
+            </Shell>
         );
     }
 
+    const sourceTable = customPropertyValueByKey.sourceTable;
+    const submitTable = customPropertyValueByKey.submitTable || sourceTable;
+    const tokenEndpoint =
+        customPropertyValueByKey.tokenEndpoint || DEFAULT_TOKEN_ENDPOINT;
+
+    if (!sourceTable) {
+        return (
+            <Shell>
+                <p className="text-sm text-gray-gray500 dark:text-gray-gray400">
+                    Open the properties panel (right) and pick a{" "}
+                    <span className="font-medium">Form source table</span> to begin.
+                </p>
+            </Shell>
+        );
+    }
+
+    // sourceTable is guaranteed non-null below — safe to read its fields.
     return (
         <FormRunner
-            sourceView={settings.sourceView}
-            submitTable={settings.submitTable}
-            tokenEndpoint={settings.tokenEndpoint}
+            sourceTable={sourceTable}
+            submitTable={submitTable}
+            tokenEndpoint={tokenEndpoint}
         />
     );
 }
 
-function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
-    const base = useBase();
+function FormRunner({ sourceTable, submitTable, tokenEndpoint }) {
     const session = useSession();
     const userName =
-        (session.currentUser && session.currentUser.name) || "";
+        (session && session.currentUser && session.currentUser.name) || "";
 
-    // THE schema call: visible fields, already in view order.
-    const viewMetadata = useViewMetadata(sourceView);
-    const visibleFields = (viewMetadata && viewMetadata.visibleFields) || [];
+    // THE schema call: the table's fields, in field order. (interface-alpha has
+    // no view-metadata API, so table field order is the available ordering.)
     const { fields, skipped } = useMemo(
-        () => buildSchema(visibleFields),
-        // visibleFields identity changes when the view's field set/order changes.
-        [visibleFields],
+        () => buildSchema(sourceTable.fields),
+        [sourceTable],
     );
 
     const [values, setValues] = useState({}); // slug -> string
@@ -135,8 +124,6 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
         [userName, submitTable],
     );
 
-    // doSubmit needs to be referenced by onToolCall, which is built before it in
-    // source order; a ref breaks the cycle without stale-closure risk.
     const doSubmitRef = useRef(null);
 
     const onToolCall = useCallback(
@@ -147,12 +134,9 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
                 if (!f) return "Unknown field '" + slug + "'.";
                 if (typeof args.value !== "string") return "ok";
                 setValue(slug, args.value);
-                // Validate against the field's write rules so the model can self-correct.
                 const c = coerceCellValue(f, args.value);
                 if (!c.ok)
-                    return (
-                        '"' + f.name + '" not accepted (' + c.reason + "). Ask the user to clarify."
-                    );
+                    return '"' + f.name + '" not accepted (' + c.reason + "). Ask the user to clarify.";
                 return f.name + ' set to "' + args.value + '". Continue to the next field.';
             }
             if (name === "submit_form") {
@@ -187,16 +171,17 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
         setSubmitError("");
         setSubmitting(true);
         try {
-            const sourceTable = sourceView.parentTable;
             const sameTable = submitTable.id === sourceTable.id;
             const writeFields = {};
             for (const f of fieldsRef.current) {
                 const raw = valuesRef.current[f.slug];
                 if (!raw || !String(raw).trim()) continue;
+                // getFieldIfExists accepts an id OR a name → resolve by id within the
+                // same table, by name when writing to a different table.
                 const target = sameTable
-                    ? submitTable.getFieldByIdIfExists(f.id)
-                    : submitTable.getFieldByNameIfExists(f.name);
-                if (!target || target.isComputed) continue;
+                    ? submitTable.getFieldIfExists(f.id)
+                    : submitTable.getFieldIfExists(f.name);
+                if (!target) continue;
                 const tDesc = describeField(target);
                 if (!tDesc || !tDesc.supported) continue;
                 const c = coerceCellValue(tDesc, raw);
@@ -204,11 +189,9 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
             }
             if (!Object.keys(writeFields).length)
                 throw new Error("Nothing to submit yet — fill in at least one field.");
-            if (!submitTable.hasPermissionToCreateRecord(writeFields))
+            if (!submitTable.hasPermissionToCreateRecords([{ fields: writeFields }]))
                 throw new Error(
-                    "You don't have permission to create a record in " +
-                        submitTable.name +
-                        ".",
+                    "You don't have permission to create a record in " + submitTable.name + ".",
                 );
             const recordId = await submitTable.createRecordAsync(writeFields);
             setSubmittedRecordId(recordId);
@@ -221,7 +204,7 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
         } finally {
             setSubmitting(false);
         }
-    }, [sourceView, submitTable, gemini]);
+    }, [sourceTable, submitTable, gemini]);
     doSubmitRef.current = doSubmit;
 
     if (submittedRecordId) {
@@ -236,26 +219,25 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
         );
     }
 
-    const filledCount = fields.filter(
-        (f) => (values[f.slug] || "").trim(),
-    ).length;
+    const filledCount = fields.filter((f) => (values[f.slug] || "").trim()).length;
+    const firstName = userName ? userName.split(" ")[0] : "";
 
     return (
-        <Box padding={3} display="flex" flexDirection="column" style={{ gap: 12 }}>
-            <Box>
-                <Heading size="small" marginBottom={1}>
-                    {userName ? `Hi ${userName.split(" ")[0]} — ` : ""}fill{" "}
+        <Shell>
+            <div className="mb-4">
+                <h1 className="font-display font-bold text-xl text-gray-gray700 dark:text-gray-gray100">
+                    {firstName ? `Hi ${firstName} — ` : ""}fill{" "}
                     {submitTable ? submitTable.name : "the form"} by voice or typing
-                </Heading>
-                <Text textColor="light" size="small">
+                </h1>
+                <p className="text-sm text-gray-gray500 dark:text-gray-gray400 mt-0.5">
                     {filledCount} of {fields.length} field
                     {fields.length === 1 ? "" : "s"} filled.
-                </Text>
-            </Box>
+                </p>
+            </div>
 
             <VoicePanel gemini={gemini} tokenEndpoint={tokenEndpoint} />
 
-            <Box display="flex" flexDirection="column" style={{ gap: 10 }}>
+            <div className="flex flex-col gap-3 mt-4">
                 {fields.map((f) => (
                     <FieldControl
                         key={f.slug}
@@ -264,60 +246,55 @@ function FormRunner({ sourceView, submitTable, tokenEndpoint }) {
                         onChange={(val) => setValue(f.slug, val)}
                     />
                 ))}
-            </Box>
+            </div>
 
             {skipped.length > 0 && (
-                <Text size="small" textColor="light">
+                <p className="text-xs text-gray-gray400 dark:text-gray-gray500 mt-3">
                     Not shown ({skipped.length}):{" "}
                     {skipped.map((s) => `${s.name} (${s.why})`).join(", ")}.
-                </Text>
+                </p>
             )}
 
             {submitError && (
-                <Box
-                    padding={2}
-                    backgroundColor="redLight2"
-                    borderRadius="default"
-                >
-                    <Text textColor="red">{submitError}</Text>
-                </Box>
+                <div className="mt-3 rounded-md bg-red-redLight3 dark:bg-red-redDark1 px-3 py-2">
+                    <p className="text-sm text-red-red dark:text-red-redLight2">{submitError}</p>
+                </div>
             )}
 
-            <Button
-                variant="primary"
-                size="large"
+            <button
+                type="button"
                 disabled={submitting || !filledCount}
                 onClick={doSubmit}
-                icon={submitting ? undefined : "check"}
+                className="mt-4 w-full bg-blue-blue text-white px-4 py-2.5 rounded-md text-sm font-medium hover:opacity-90 transition disabled:opacity-50"
             >
                 {submitting ? "Submitting…" : "Submit"}
-            </Button>
-        </Box>
+            </button>
+        </Shell>
     );
 }
 
 // --- voice panel: mic control + live transcript, or a graceful fallback ------
 function VoicePanel({ gemini, tokenEndpoint }) {
     const blocked = !gemini.micCapable || gemini.voiceUnavailable;
+
     if (blocked) {
         let standaloneOrigin = "";
         try {
             standaloneOrigin = new URL(tokenEndpoint).origin;
         } catch {}
         return (
-            <Box padding={2} backgroundColor="grayLight2" borderRadius="default">
-                <Text size="small">
-                    <Icon name="microphone" size={14} /> Voice isn't available inside the
-                    embedded extension (Airtable's frame blocks microphone access). Type
-                    your answers below
+            <div className="rounded-md bg-gray-gray75 dark:bg-gray-gray700 px-3 py-2.5">
+                <p className="text-sm text-gray-gray600 dark:text-gray-gray300">
+                    🎙️ Voice isn't available inside the embedded extension (Airtable's
+                    frame blocks microphone access). Type your answers below
                     {standaloneOrigin ? (
                         <>
-                            {" "}
-                            — or{" "}
+                            {" "}— or{" "}
                             <a
                                 href={standaloneOrigin}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                className="text-blue-blue underline"
                             >
                                 open FormSpeak in its own tab
                             </a>{" "}
@@ -326,8 +303,8 @@ function VoicePanel({ gemini, tokenEndpoint }) {
                     ) : (
                         " to fill the form."
                     )}
-                </Text>
-            </Box>
+                </p>
+            </div>
         );
     }
 
@@ -340,156 +317,189 @@ function VoicePanel({ gemini, tokenEndpoint }) {
             : "Listening…";
 
     return (
-        <Box
-            padding={2}
-            backgroundColor="grayLight2"
-            borderRadius="default"
-            display="flex"
-            flexDirection="column"
-            style={{ gap: 8 }}
-        >
-            <Box display="flex" alignItems="center" style={{ gap: 8 }}>
-                <Button
+        <div className="rounded-md bg-gray-gray75 dark:bg-gray-gray700 px-3 py-2.5 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
                     onClick={gemini.toggleMic}
                     disabled={gemini.connecting}
-                    icon={gemini.micActive ? "pause" : "microphone"}
-                    variant={gemini.micActive ? "default" : "primary"}
+                    className={
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition disabled:opacity-50 " +
+                        (gemini.micActive
+                            ? "border border-gray-gray300 dark:border-gray-gray600 text-gray-gray700 dark:text-gray-gray200 hover:bg-gray-gray100 dark:hover:bg-gray-gray600"
+                            : "bg-blue-blue text-white hover:opacity-90")
+                    }
                 >
                     {gemini.connecting
                         ? "Connecting…"
                         : gemini.micActive
-                          ? "Pause"
+                          ? "⏸ Pause"
                           : gemini.connected
                             ? "Resume"
-                            : "Talk to fill"}
-                </Button>
-                {gemini.connecting && <Loader scale={0.3} />}
-                <Text size="small" textColor="light">
+                            : "🎙️ Talk to fill"}
+                </button>
+                <span className="text-sm text-gray-gray500 dark:text-gray-gray400">
                     {phaseLabel}
-                </Text>
-            </Box>
+                </span>
+            </div>
 
             {(gemini.transcript.user || gemini.transcript.asst) && (
-                <Box>
+                <div className="text-sm">
                     {gemini.transcript.user && (
-                        <Text size="small">
-                            <strong>You:</strong> {gemini.transcript.user}
-                        </Text>
+                        <p className="text-gray-gray700 dark:text-gray-gray200">
+                            <span className="font-semibold">You:</span> {gemini.transcript.user}
+                        </p>
                     )}
                     {gemini.transcript.asst && (
-                        <Text size="small" textColor="light">
-                            <strong>FormSpeak:</strong> {gemini.transcript.asst}
-                        </Text>
+                        <p className="text-gray-gray500 dark:text-gray-gray400">
+                            <span className="font-semibold">FormSpeak:</span>{" "}
+                            {gemini.transcript.asst}
+                        </p>
                     )}
-                </Box>
+                </div>
             )}
 
             {gemini.notice && (
-                <Text size="small" textColor="light">
-                    {gemini.notice}
-                </Text>
+                <p className="text-sm text-gray-gray500 dark:text-gray-gray400">{gemini.notice}</p>
             )}
-            {gemini.error && (
-                <Text size="small" textColor="red">
-                    {gemini.error}
-                </Text>
-            )}
-        </Box>
+            {gemini.error && <p className="text-sm text-red-red">{gemini.error}</p>}
+        </div>
     );
 }
 
-// --- a single schema-driven form control -------------------------------------
+// --- a single schema-driven form control (plain HTML + Tailwind) -------------
+const INPUT_CLS =
+    "w-full border border-gray-gray300 dark:border-gray-gray600 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-gray700 dark:text-gray-gray200";
+
 function FieldControl({ field, value, onChange }) {
     const desc = field.description || hintFor(field);
-
     let control;
+
     if (field.kind === "checkbox") {
         control = (
-            <Switch
-                value={isTruthy(value)}
-                onChange={(v) => onChange(v ? "yes" : "no")}
-                label={isTruthy(value) ? "Yes" : "No"}
-            />
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                    type="checkbox"
+                    checked={isTruthy(value)}
+                    onChange={(e) => onChange(e.target.checked ? "yes" : "no")}
+                    className="h-4 w-4 accent-blue-blue"
+                />
+                <span className="text-sm text-gray-gray600 dark:text-gray-gray300">
+                    {isTruthy(value) ? "Yes" : "No"}
+                </span>
+            </label>
         );
     } else if (field.kind === "select") {
-        const options = [
-            { value: "", label: "—" },
-            ...(field.choices || []).map((c) => ({ value: c, label: c })),
-        ];
         control = (
-            <Select
-                options={options}
+            <select
+                className={INPUT_CLS}
                 value={field.choices && field.choices.includes(value) ? value : ""}
-                onChange={(v) => onChange(v || "")}
+                onChange={(e) => onChange(e.target.value)}
+            >
+                <option value="">—</option>
+                {(field.choices || []).map((c) => (
+                    <option key={c} value={c}>
+                        {c}
+                    </option>
+                ))}
+            </select>
+        );
+    } else if (field.kind === "longtext") {
+        control = (
+            <textarea
+                className={INPUT_CLS}
+                rows={2}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
             />
         );
     } else if (field.kind === "date") {
         control = (
-            <Input
+            <input
                 type="date"
+                className={INPUT_CLS}
                 value={toDateInput(value)}
                 onChange={(e) => onChange(e.target.value)}
             />
         );
     } else if (field.kind === "datetime") {
         control = (
-            <Input
+            <input
                 type="datetime-local"
+                className={INPUT_CLS}
                 value={toDateTimeInput(value)}
                 onChange={(e) => onChange(e.target.value)}
             />
         );
     } else {
         control = (
-            <Input
+            <input
                 type={field.input.type || "text"}
                 inputMode={field.input.inputMode}
+                className={INPUT_CLS}
                 value={value}
-                placeholder={
-                    field.kind === "multiselect" ? "comma-separated" : undefined
-                }
+                placeholder={field.kind === "multiselect" ? "comma-separated" : undefined}
                 onChange={(e) => onChange(e.target.value)}
             />
         );
     }
 
     return (
-        <FormField label={field.name} description={desc}>
+        <div>
+            <label className="block text-xs font-medium text-gray-gray500 dark:text-gray-gray400 mb-1">
+                {field.name}
+            </label>
             {control}
-        </FormField>
+            {desc && (
+                <p className="text-xs text-gray-gray400 dark:text-gray-gray500 mt-0.5">{desc}</p>
+            )}
+        </div>
     );
 }
 
 function DoneScreen({ submitTable, onReset }) {
     return (
-        <Box padding={3} display="flex" flexDirection="column" style={{ gap: 12 }}>
-            <Box display="flex" alignItems="center" style={{ gap: 8 }}>
-                <Icon name="check" size={20} fillColor="green" />
-                <Heading size="small">Submitted</Heading>
-            </Box>
-            <Text textColor="light">
-                A new record was created in {submitTable ? submitTable.name : "the table"}
-                .
-            </Text>
-            <Button onClick={onReset} icon="plus" variant="primary">
+        <Shell>
+            <div className="flex items-center gap-2 mb-2">
+                <span className="text-green-green text-lg">✓</span>
+                <h1 className="font-display font-bold text-xl text-gray-gray700 dark:text-gray-gray100">
+                    Submitted
+                </h1>
+            </div>
+            <p className="text-sm text-gray-gray500 dark:text-gray-gray400 mb-4">
+                A new record was created in {submitTable ? submitTable.name : "the table"}.
+            </p>
+            <button
+                type="button"
+                onClick={onReset}
+                className="bg-blue-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 transition"
+            >
                 Fill out another
-            </Button>
-        </Box>
+            </button>
+        </Shell>
+    );
+}
+
+// --- shell: page background + padding, dark-mode aware ------------------------
+function Shell({ children }) {
+    // Reading the scheme keeps the component subscribed; dark: classes do the work.
+    useColorScheme();
+    return (
+        <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-5 font-sans">
+            <div className="max-w-xl mx-auto">{children}</div>
+        </div>
     );
 }
 
 // --- small helpers -----------------------------------------------------------
 function hintFor(f) {
     if (f.kind === "multiselect") return "Choose one or more (comma-separated).";
-    if (f.kind === "select" && f.choices && f.choices.length)
-        return "Choose one.";
     return "";
 }
 const TRUTHY = new Set(["true", "yes", "y", "1", "on", "checked"]);
 function isTruthy(v) {
     return TRUTHY.has(String(v || "").trim().toLowerCase());
 }
-// "March 3, 1990" → "1990-03-03" for <input type=date>; pass ISO through.
 function toDateInput(v) {
     if (!v) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
@@ -504,16 +514,9 @@ function toDateTimeInput(v) {
     if (isNaN(d.getTime())) return "";
     const p = (n) => String(n).padStart(2, "0");
     return (
-        d.getFullYear() +
-        "-" +
-        p(d.getMonth() + 1) +
-        "-" +
-        p(d.getDate()) +
-        "T" +
-        p(d.getHours()) +
-        ":" +
-        p(d.getMinutes())
+        d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+        "T" + p(d.getHours()) + ":" + p(d.getMinutes())
     );
 }
 
-initializeBlock(() => <FormSpeakApp />);
+initializeBlock({ interface: () => <FormSpeakApp /> });

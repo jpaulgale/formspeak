@@ -1,21 +1,22 @@
 // ============================================================================
-// schema.js — turn an Airtable view's field schema into (a) form-input
+// schema.js — turn an Airtable table's field schema into (a) form-input
 // descriptors and (b) writable cell values for createRecordAsync.
 //
-// This is what makes the form "informed by a schema call": the host reads the
-// view's visibleFields (already in view order) and hands each Field here. We
-// classify it, decide how to render it, describe it to the Gemini model, and —
-// on submit — coerce the captured string back into the exact cell-value shape
-// Airtable's write API expects for that field type.
+// Built for the Airtable **Interface Extensions** SDK (`interface-alpha`):
+//   • Field type is read from `field.config.type` (NOT `field.type`), compared
+//     against the `FieldType` enum from `@airtable/blocks/interface/models`.
+//   • Select choices come from `field.options?.choices`.
+//   • The interface SDK has no `field.isComputed`, so computed/read-only types
+//     are detected with an explicit set.
 //
-// Read-only / computed fields (formula, rollup, lookup, autonumber, created
-// time, …) are detected via field.isComputed and excluded — you can neither
-// type into them nor write them. A few writable-but-structurally-complex types
-// (record links, collaborators, attachments) are marked "unsupported" so the
-// form stays robust rather than guessing at record ids the user can't speak.
+// NOTE on "fields in view order": the interface-alpha SDK does not expose
+// view-level field ordering or visibility (no `useViewMetadata`). We therefore
+// drive the form from the configured table's field order (`table.fields`),
+// skipping computed and structurally-complex types. The builder controls which
+// table feeds the form via the extension's custom properties.
 // ============================================================================
 
-import { FieldType } from "@airtable/blocks/models";
+import { FieldType } from "@airtable/blocks/interface/models";
 
 // Field types we render + write, grouped by how they behave in the form.
 const TEXT_TYPES = new Set([
@@ -36,22 +37,52 @@ const NUMBER_TYPES = new Set([
     FieldType.RATING,
 ]);
 
-// HTML inputmode / type hints so phones show the right keyboard for typed entry.
+// Computed / read-only: never writable, never typed into. (interface-alpha has
+// no `field.isComputed`, so we enumerate.)
+const COMPUTED_TYPES = new Set([
+    FieldType.AI_TEXT,
+    FieldType.AUTO_NUMBER,
+    FieldType.BUTTON,
+    FieldType.COUNT,
+    FieldType.CREATED_BY,
+    FieldType.CREATED_TIME,
+    FieldType.FORMULA,
+    FieldType.LAST_MODIFIED_BY,
+    FieldType.LAST_MODIFIED_TIME,
+    FieldType.MULTIPLE_LOOKUP_VALUES,
+    FieldType.ROLLUP,
+    FieldType.EXTERNAL_SYNC_SOURCE,
+]);
+
+// HTML input hints so the right keyboard shows for typed entry.
 const TEXT_INPUT_HINT = {
     [FieldType.EMAIL]: { type: "email", inputMode: "email" },
     [FieldType.URL]: { type: "url", inputMode: "url" },
     [FieldType.PHONE_NUMBER]: { type: "tel", inputMode: "tel" },
 };
 
-// Classify a Field into a render/write "kind". Returns null for fields the form
-// must not touch (computed, or complex types we deliberately don't handle).
+function fieldType(field) {
+    return (field && field.config && field.config.type) || (field && field.type);
+}
+function fieldChoices(field) {
+    const opts =
+        (field && field.options && field.options.choices) ||
+        (field && field.config && field.config.options && field.config.options.choices);
+    return Array.isArray(opts) ? opts.map((c) => c.name) : [];
+}
+function fieldRatingMax(field) {
+    const m =
+        (field && field.options && field.options.max) ||
+        (field && field.config && field.config.options && field.config.options.max);
+    return typeof m === "number" ? m : 5;
+}
+
+// Classify a Field into a render/write "kind". `supported:false` means the form
+// must not touch it (computed, or a complex type we deliberately don't handle).
 export function describeField(field) {
     if (!field) return null;
-    // Computed fields are never writable and never typed into.
-    if (field.isComputed) {
-        return unsupported(field, "computed (read-only)");
-    }
-    const t = field.type;
+    const t = fieldType(field);
+    if (COMPUTED_TYPES.has(t)) return unsupported(field, "computed (read-only)");
 
     let kind = null;
     let input = null;
@@ -69,10 +100,10 @@ export function describeField(field) {
         kind = "checkbox";
     } else if (t === FieldType.SINGLE_SELECT) {
         kind = "select";
-        choices = choiceNames(field);
+        choices = fieldChoices(field);
     } else if (t === FieldType.MULTIPLE_SELECTS) {
         kind = "multiselect";
-        choices = choiceNames(field);
+        choices = fieldChoices(field);
     } else if (t === FieldType.DATE) {
         kind = "date";
     } else if (t === FieldType.DATE_TIME) {
@@ -81,7 +112,7 @@ export function describeField(field) {
         kind = "barcode";
         input = { type: "text", inputMode: "text" };
     } else {
-        // record links, collaborators, attachments, button, etc.
+        // record links, collaborators, attachments, etc.
         return unsupported(field, "field type not supported in this form");
     }
 
@@ -93,7 +124,7 @@ export function describeField(field) {
         kind,
         input: input || { type: "text", inputMode: "text" },
         choices,
-        max: t === FieldType.RATING ? ratingMax(field) : null,
+        max: t === FieldType.RATING ? fieldRatingMax(field) : null,
         supported: true,
     };
 }
@@ -110,18 +141,8 @@ function unsupported(field, why) {
     };
 }
 
-function choiceNames(field) {
-    const opts = field.options && field.options.choices;
-    return Array.isArray(opts) ? opts.map((c) => c.name) : [];
-}
-function ratingMax(field) {
-    const m = field.options && field.options.max;
-    return typeof m === "number" ? m : 5;
-}
-
-// A stable, model-friendly key derived from the field name (the model's tool
-// enum reads "first_name", not "fldXX…"). Falls back to the field id if a name
-// slugs to empty, and the host de-dupes collisions.
+// A stable, model-friendly key from the field name (the tool enum reads
+// "first_name", not "fldXX…"). Falls back to the field id; the caller de-dupes.
 export function slugify(name, fallbackId) {
     const s = String(name || "")
         .toLowerCase()
@@ -130,15 +151,14 @@ export function slugify(name, fallbackId) {
     return s || fallbackId;
 }
 
-// Build the FIELDS array the rest of the app drives off, from the view's
-// ordered visibleFields. Only supported fields become form rows; unsupported
-// ones are returned separately so the UI can disclose what it skipped. Slugs
-// are made unique so the tool enum has no collisions.
-export function buildSchema(visibleFields) {
+// Build the FIELDS array the app drives off, from a table's ordered fields.
+// Only supported fields become form rows; unsupported ones are returned
+// separately so the UI can disclose what it skipped. Slugs are made unique.
+export function buildSchema(fields) {
     const supported = [];
     const skipped = [];
     const seen = new Set();
-    for (const field of visibleFields) {
+    for (const field of fields || []) {
         const d = describeField(field);
         if (!d) continue;
         if (!d.supported) {
@@ -157,8 +177,7 @@ export function buildSchema(visibleFields) {
 
 // ---------------------------------------------------------------------------
 // Cell-value coercion: captured string  →  the exact write shape Airtable wants
-// for createRecordAsync. Returns { ok, value, reason }. ok=false means "leave
-// this field unset" (empty input, or a value that couldn't be coerced).
+// for createRecordAsync. Returns { ok, value, reason }. ok=false ⇒ leave unset.
 // ---------------------------------------------------------------------------
 export function coerceCellValue(descriptor, raw) {
     const s = (raw == null ? "" : String(raw)).trim();
@@ -173,7 +192,6 @@ export function coerceCellValue(descriptor, raw) {
             return { ok: true, value: { text: s } };
 
         case "number": {
-            // Keep digits, one decimal point, and a leading sign; tolerate "$1,200".
             const cleaned = s.replace(/[^0-9.\-]/g, "");
             const num = parseFloat(cleaned);
             if (isNaN(num)) return { ok: false, reason: "not a number" };
@@ -189,22 +207,17 @@ export function coerceCellValue(descriptor, raw) {
         }
 
         case "multiselect": {
-            const parts = s
-                .split(/[,;]+/)
-                .map((p) => p.trim())
-                .filter(Boolean);
+            const parts = s.split(/[,;]+/).map((p) => p.trim()).filter(Boolean);
             if (!parts.length) return { ok: false, reason: "empty" };
-            const value = parts.map((p) => ({
-                name: matchChoice(descriptor.choices, p) || p,
-            }));
-            return { ok: true, value };
+            return {
+                ok: true,
+                value: parts.map((p) => ({ name: matchChoice(descriptor.choices, p) || p })),
+            };
         }
 
         case "date": {
             const iso = toISODate(s);
-            return iso
-                ? { ok: true, value: iso }
-                : { ok: false, reason: "unparseable date" };
+            return iso ? { ok: true, value: iso } : { ok: false, reason: "unparseable date" };
         }
 
         case "datetime": {
@@ -219,13 +232,10 @@ export function coerceCellValue(descriptor, raw) {
     }
 }
 
-const TRUTHY = new Set([
-    "true", "yes", "y", "1", "on", "checked", "check", "done", "x",
-]);
+const TRUTHY = new Set(["true", "yes", "y", "1", "on", "checked", "check", "done", "x"]);
 
-// Case-insensitive match of a spoken/typed value to one of the field's existing
-// option names, so "english" snaps to the real "English" choice and we don't
-// spawn near-duplicate options. Returns the canonical name or null.
+// Case-insensitive match of a spoken/typed value to an existing option name, so
+// "english" snaps to "English" and we don't spawn near-duplicate options.
 function matchChoice(choices, value) {
     if (!Array.isArray(choices)) return null;
     const v = value.toLowerCase();
@@ -237,7 +247,6 @@ function matchChoice(choices, value) {
     return partial || null;
 }
 
-// "March 3, 1990" | "1990-03-03" | "3/3/1990"  →  "1990-03-03"
 export function toISODate(s) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     const d = new Date(s);
@@ -248,7 +257,6 @@ export function toISODate(s) {
 export function toISODateTime(s) {
     const d = new Date(s);
     if (isNaN(d.getTime())) {
-        // bare date → midnight UTC
         const day = toISODate(s);
         return day ? day + "T00:00:00.000Z" : null;
     }

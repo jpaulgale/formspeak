@@ -1,132 +1,152 @@
 # FormSpeak for Airtable 🎙️
 
-A **schema-driven** voice + typed form that lives inside Airtable as a custom
-extension (Blocks SDK). It:
+A **schema-driven** voice + typed form that runs as a custom **Airtable Interface
+Extension** (the `interface-alpha` SDK — React 19 + Tailwind, plain HTML, no SDK
+UI components). It:
 
-1. **Reads a view's field schema** — `useViewMetadata(view).visibleFields` gives
-   the fields **in the exact order they appear in the view**.
-2. **Renders each field as a form control**, picking the right input per field
-   type (text, number, single/multi‑select, date, checkbox, …).
-3. **Lets the user fill it by talking** — the Gemini Live API does speech
-   recognition + intent + tool‑calling in one pass and fills fields live.
-4. **Submits as a record** to the submission table via `createRecordAsync`.
+1. **Reads a table's field schema** — iterates `sourceTable.fields` and renders
+   each writable field as the right control (text, number, single/multi‑select,
+   date, checkbox, barcode). Computed and structurally‑complex fields are
+   detected and skipped.
+2. **Lets the user fill it by TALKING** — the Gemini Live API does speech
+   recognition + intent + tool‑calling in one pass and fills fields live — **or
+   by typing.**
+3. **Submits as a record** to the submission table via `createRecordAsync`,
+   permission‑checked first.
 
-The Gemini context is built **dynamically at every connect** from the live
-schema and the current user's name (`session.currentUser.name`) — so renaming a
-field, reordering the view, or editing a single‑select's options changes what
-the model understands with no code change.
+The Gemini context is built **dynamically at every connect** from the live field
+schema and the current user's name (`session.currentUser.name`) — so adding or
+renaming a field, or editing a single‑select's options, changes what the model
+understands with no code change.
 
----
-
-## Setup
-
-```bash
-cd airtable-extension
-npm install
-# point the CLI at a new/existing custom extension in your base, then:
-npm start          # block run  → live-reload dev server
-npm run release    # block release → publish to the base
-```
-
-To create the extension slot: in your base open **Extensions → Add an extension
-→ Build a custom extension**, give it a name, and follow the CLI's
-`block init`/`add-remote` prompt (this writes a gitignored `.block/remote.json`
-with your base + block id). Then `npm start` and open the extension.
-
-### Configure (gear icon / Settings)
-
-| Setting | What it does |
-|---|---|
-| **Form source view** | The view whose visible fields (in order) become the form. |
-| **View** | Which view of that table to read the schema from. |
-| **Submission table** *(optional)* | Where a submitted record is created. Blank → the source view's own table. If different, fields map **by name**. |
-| **Gemini token endpoint** | Server URL that mints short‑lived Gemini Live tokens. Defaults to the deployed FormSpeak endpoint. |
+> **On "fields in view order":** the interface‑alpha SDK exposes **no
+> view‑metadata API** (there is no `useViewMetadata`), so view‑specific ordering
+> / visibility can't be read. This extension uses the configured **table's field
+> order** (`table.fields`) as the schema — the closest the SDK supports — and the
+> builder controls inclusion by exposing tables/fields to the extension and by
+> picking the source table in the properties panel.
 
 ---
 
-## ⚠️ Microphone in a custom extension (the important caveat)
+## Setup (Interface Extension)
 
-Airtable extensions run in a **sandboxed, cross‑origin iframe**. Browsers only
+You build this in **Builder Hub**, run it locally with the Blocks CLI, then load
+it into an Interface page in Develop mode. (Full walkthrough mirrors the toolkit
+SKILL.md.)
+
+1. **Builder Hub → Extensions → Create new extension → Interface** → start from
+   *Hello world (JavaScript)*. Copy the `block init` command (it has your
+   **Block ID**, `blk…`).
+2. **Create a Personal Access Token** (Builder Hub → Personal access tokens)
+   with scopes `data.records:read`, `data.records:write`, `schema.bases:read`,
+   `block:manage`, and access to your base. Copy it (`pat…`, shown once).
+3. **Initialize the project** with the copied command, then replace its
+   `frontend/` + config with the files in this folder (or copy these files into
+   the scaffolded project). Install deps:
+   ```bash
+   npm install
+   ```
+4. **Create `.airtableblocksrc.json`** (gitignored — holds your PAT):
+   ```json
+   { "airtableApiKey": "patYOUR_TOKEN", "airtableBaseId": "appYOUR_BASE_ID" }
+   ```
+5. **Run the dev server:**
+   ```bash
+   npx block run          # http://localhost:9000  (leave running)
+   ```
+6. **Add to an Interface:** open your base → **Interfaces** → a **Custom** layout
+   (full page) or a **Dashboard → + → Custom** element → select this extension →
+   click **`</> Develop`** to load your local code. Accept the self‑signed‑cert
+   prompt if shown, then **Reload extension**.
+7. **Configure** in the right‑hand **properties panel**:
+   - **Form source table** — its fields become the form.
+   - **Submission table** — where a record is created (blank → the source
+     table; if different, fields map **by name**).
+   - **Gemini token endpoint** — server that mints Live tokens (defaults to the
+     deployed FormSpeak endpoint).
+8. **Release** when ready:
+   ```bash
+   echo "Initial release" | npx block release
+   ```
+
+---
+
+## ⚠️ Microphone in an interface extension (the important caveat)
+
+Interface extensions run in a **sandboxed, cross‑origin iframe**. Browsers only
 allow `getUserMedia()` (microphone) in a cross‑origin iframe when the embedding
 page delegates it via `allow="microphone"` (Permissions‑Policy). Airtable does
 **not** delegate the microphone to extension iframes, so **in‑extension voice
-capture is typically blocked.**
+capture is typically blocked** (script injection and `fetch`/WebSocket work
+fine; device permissions are the exception).
 
-This extension is built to **degrade gracefully** rather than break:
+This extension **degrades gracefully** rather than breaking:
 
-- The **typed, schema‑driven form always works** inside the extension and
-  creates the record — voice is a *progressive enhancement*.
-- The mic is **feature‑detected** (`micPlausiblyAvailable`) and the first real
-  `getUserMedia` rejection is caught and surfaced as a typed
-  `MicUnavailableError`, flipping the UI to a fallback that offers a link to
-  **open FormSpeak in its own browser tab** (where the mic works), instead of
-  throwing a raw `NotAllowedError`.
-
-If you control the deployment and *can* run the voice experience where the mic
-is delegated (e.g. the standalone web app at the token endpoint's origin), point
-users there for the full talk‑to‑fill flow; the extension remains the
-schema‑driven typed form + submission surface.
+- The **typed, schema‑driven form always works** in‑extension and creates the
+  record — voice is a *progressive enhancement*.
+- The mic is feature‑detected, and the first real `getUserMedia` rejection is
+  caught as a typed `MicUnavailableError`, flipping the panel to a fallback that
+  links out to **open FormSpeak in its own browser tab** (where the mic works),
+  instead of throwing a raw `NotAllowedError`.
 
 ---
 
 ## Security model
 
-- **No API key in the browser.** The client never sees `GEMINI_API_KEY`. It
-  `POST`s the configured **token endpoint**, which mints a single‑use,
-  short‑lived **ephemeral token**; the WebSocket then opens directly to Google
-  with that token. (The repo's `functions/api/token.js` is exactly this
-  endpoint, rate‑limited per IP.)
-- **Session‑cost caps.** An idle timeout (90s of silence) and a hard wall‑clock
-  cap (10 min) close the billable socket so an abandoned tab can't burn quota.
-- **Writes are permission‑checked.** Every submit calls
-  `hasPermissionToCreateRecord(fields)` before `createRecordAsync`, and only
-  ever writes **writable** fields (computed fields are skipped via
-  `field.isComputed`).
-- **Values are coerced per field type** (`schema.js`) — selects snap to existing
-  option names, numbers/dates are parsed — so the model can't write malformed
+- **No API key in the browser.** The client `POST`s the configured **token
+  endpoint**, which mints a single‑use, short‑lived **ephemeral token**; the
+  WebSocket opens directly to Google with that token. (`functions/api/token.js`
+  in this repo is exactly that endpoint, rate‑limited per IP.)
+- **Session‑cost caps.** Idle (90s of silence) and hard (10 min) timers close
+  the billable socket so an abandoned tab can't burn quota.
+- **Writes are permission‑checked.** Submit calls
+  `hasPermissionToCreateRecords([{fields}])` before `createRecordAsync`, and only
+  writes supported, non‑computed fields.
+- **Values are coerced per field type** (`schema.js`): selects snap to existing
+  option names; numbers/dates are parsed — so the model can't write malformed
   cell values.
+- `.airtableblocksrc.json` (your PAT) is gitignored.
 
 ---
 
-## Airtable Blocks SDK conventions used here ("esoteric JS")
+## Interface Extensions SDK conventions used here (per SKILL.md)
 
-These are the non‑obvious rules this extension follows — worth knowing if you
-extend it:
-
-- **One entry point.** `initializeBlock(() => <App/>)` is the whole bootstrap;
-  there is exactly one call, at the bottom of `index.js`.
-- **Everything reactive is a hook.** `useBase`, `useSession`, `useGlobalConfig`,
-  `useViewMetadata`, `useSettingsButton`, `useRecords` — you never read the
-  models imperatively for rendering; the hooks re‑render on change. Reaching
-  outside React (polling, manual watchers) is the anti‑pattern.
-- **Loadable models must load.** `useViewMetadata` handles loading internally
-  and exposes `visibleFields` once ready (guard for the brief `null`).
-- **Config is `globalConfig`.** Shared, synced settings live in `globalConfig`
-  (`*Synced` pickers write straight to it); guard edits with
-  `globalConfig.hasPermissionToSet()`.
-- **Writes are async + permission‑gated.** `await table.createRecordAsync(...)`
-  after `table.hasPermissionToCreateRecord(...)`. Cell values are **typed
-  shapes**, not strings: single‑select → `{name}`, multi‑select → `[{name}]`,
-  date → `"YYYY-MM-DD"`, number → `Number`, checkbox → `boolean`, barcode →
-  `{text}`.
-- **React 16.** The SDK bundles React 16.14; hooks are fine, but no React‑18‑only
-  APIs.
-- **Cross‑origin iframe.** External `fetch`/WebSocket work; the bundle is served
-  from Airtable's origin; `AudioWorklet` via `Blob` URL works — but device
-  permissions (mic) are gated as described above.
+- **Imports only** from `@airtable/blocks/interface/ui` and
+  `@airtable/blocks/interface/models` — never `@airtable/blocks/ui|models`.
+- **Entry point:** `initializeBlock({interface: () => <App/>})` (the `{interface:}`
+  wrapper is required — `initializeBlock(() => …)` renders nothing).
+- **No SDK UI components** — plain `<div>/<input>/<select>/<button>` styled with
+  the Airtable Tailwind design tokens (`bg-blue-blue`, `text-gray-gray500`, …).
+- **Config via `useCustomProperties`** (not `useGlobalConfig`); the
+  `getCustomProperties` function is **module‑scoped** for stable identity.
+- **Field types** via `field.config.type` against the `FieldType` enum; choices
+  via `field.options?.choices`. There's no `field.isComputed`, so computed types
+  are enumerated.
+- **Writes** are typed cell‑value shapes: single‑select → `{name}`,
+  multi‑select → `[{name}]`, date → `"YYYY‑MM‑DD"`, number → `Number`,
+  checkbox → `boolean`, barcode → `{text}`.
+- **React 19**, Tailwind via PostCSS; `style.css` holds the `@tailwind`
+  directives and is imported from `index.js`.
 
 ## Files
 
 ```
 airtable-extension/
-  block.json            # Blocks manifest → frontend entry
-  package.json          # @airtable/blocks + react 16 + blocks-cli
+  block.json            # {"version":"1.0","frontendEntry":"./frontend/index.js"}
+  package.json          # @airtable/blocks: interface-alpha, react 19, tailwind
+  tailwind.config.js    # Airtable design tokens
+  postcss.config.js     # tailwind + autoprefixer
   frontend/
-    index.js            # initializeBlock + App: schema-driven form, voice, submit
-    settings.js         # globalConfig settings (source view, submit table, token URL)
-    schema.js           # field type → input + writable cell-value coercion
+    index.js            # initializeBlock({interface}) + App: form, voice, submit
+    config.js           # getCustomProperties (source/submit table, token URL)
+    schema.js           # field.config.type → input + writable cell-value coercion
     geminiContext.js    # builds the system instruction + tools FROM the live schema
     geminiLive.js       # robust Gemini Live transport (ws + audio + caps + mic detect)
     useGeminiLive.js    # React glue around the session
     worklets.js         # inline 16 kHz capture / 24 kHz playback AudioWorklets
+    style.css           # @tailwind base/components/utilities
 ```
+
+> Voice modules (`geminiLive.js`, `worklets.js`, `geminiContext.js`,
+> `useGeminiLive.js`) use only browser APIs — no Airtable SDK import — so they're
+> independent of the SDK version.

@@ -3,5 +3,9 @@
 node_modules/
 .block/
 build/
+dist/
 *.log
 .DS_Store
+
+# Contains your Personal Access Token + base id — NEVER commit
+.airtableblocksrc.json

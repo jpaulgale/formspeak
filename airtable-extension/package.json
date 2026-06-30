@@ -2,17 +2,20 @@
     "name": "formspeak-airtable",
     "version": "1.0.0",
     "private": true,
-    "description": "FormSpeak for Airtable — a schema-driven voice + typed form that reads a view's fields (in view order) and writes a record to a submission table. Built on the Airtable Blocks SDK with the Gemini Live API.",
+    "description": "FormSpeak — an Airtable Interface Extension that reads a table's fields, fills them by voice (Gemini Live) or typing, and submits a record. Built on the interface-alpha SDK (React 19 + Tailwind).",
     "scripts": {
         "start": "block run",
         "release": "block release"
     },
     "dependencies": {
-        "@airtable/blocks": "^1.18.0",
-        "react": "^16.14.0",
-        "react-dom": "^16.14.0"
+        "@airtable/blocks": "interface-alpha",
+        "react": "^19.1.0",
+        "react-dom": "^19.1.0"
     },
     "devDependencies": {
-        "@airtable/blocks-cli": "^2.0.7"
+        "@airtable/blocks-cli": "^2.0.7",
+        "autoprefixer": "^10.4.0",
+        "postcss": "^8.4.0",
+        "tailwindcss": "^3.4.0"
     }
 }
