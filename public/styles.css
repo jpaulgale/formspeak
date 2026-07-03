@@ -265,7 +265,6 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .ff-submit { margin-top: 4px; border: none; border-radius: 99px; padding: 14px; font: inherit; font-family: var(--font-body); font-weight: 700; font-size: 15px; color: #fff; background: var(--accent); cursor: pointer; transition: background .15s, transform .1s; }
 .ff-submit:hover { background: var(--accent-dark); }
 .ff-submit:active { transform: scale(.985); }
-.ff-hint { color: var(--warn-text); font-size: 13px; font-weight: 600; text-align: center; min-height: 14px; }
 
 /* ---------- NYC DS Error Summary (feedback component) ---------- */
 .nyc-errorsummary {
@@ -424,6 +423,13 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
 .btn-primary:hover { background: var(--accent-dark); }
 .btn-primary:active { transform: scale(.985); }
 .thanks { color: var(--ink); font-weight: 700; font-size: 16px; margin-top: 4px; }
+/* footer CTA — the primary "reach out" ask under the form */
+.pitch { display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 608px; margin: 0 auto 4px; text-align: center; }
+.pitch-text { color: var(--ink); font-size: 15px; line-height: 1.5; margin: 0; text-align: left; align-self: stretch; }
+.pitch-btn { align-self: center; margin-top: 8px; }
+.pitch-btn svg { width: 18px; height: 18px; }
+
 /* hackathon attribution (top of landing + done screen) */
 .credit { color: var(--gray-30); font-size: 13px; line-height: 1.4; text-align: center; }
 .credit a { color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -473,8 +479,7 @@ select.ff-select:invalid, select.ff-select option[value=""] { color: var(--gray-
   .nyc-errorsummary,
   .liveform .ff[data-key="address"],
   .ff-feedback,
-  .ff-submit,
-  .ff-hint { grid-column: 1 / -1; }
+  .ff-submit { grid-column: 1 / -1; }
 }
 
 /* ---------- respect reduced-motion (vestibular / elderly comfort) ---------- */

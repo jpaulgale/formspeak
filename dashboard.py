@@ -27,10 +27,16 @@ def query(*sqls: str) -> list[list[dict]]:
     # Each remote `wrangler` call is ~2s of Node-startup + network, dwarfing the query
     # itself. So we batch every statement we need into ONE invocation (wrangler returns
     # one result set per statement, in order) and pull the whole DB up front — see _CACHE.
-    out = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", " ".join(sqls)],
-        capture_output=True, text=True,
-    )
+    try:
+        out = subprocess.run(
+            ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", " ".join(sqls)],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "wrangler timed out after 60s. First run installs wrangler via npx (can be slow) "
+            "and may block on an auth/login prompt — try `npx wrangler whoami` once in a terminal."
+        )
     if out.returncode != 0:
         raise RuntimeError(out.stderr or out.stdout)
     return [rs["results"] for rs in json.loads(out.stdout)]

@@ -81,7 +81,7 @@
          and stays put (it doubles as a script people can read aloud to test). -->
     <div class="tryline" id="tryLine">
       <span class="tryline-lead">Try saying:</span>
-      <span class="tryline-quote">“There’s four of us, I make $30k a year. Name’s John Doe, 100 Park Place in Brooklyn — oh, Dough, like D-O-U-G-H, and J-O-N.”</span>
+      <span class="tryline-quote">“Name is John Doe, there’s four of us, I make $30k a year, 100 Park Place in Brooklyn — oh, Dough, like D-O-U-G-H, and J-O-N.”</span>
     </div>
     <div class="dock">
       <div class="mic-wrap"><div class="ring" id="ring"></div>
@@ -99,6 +99,16 @@
     <div class="card" id="qcard"></div>
     </div>
     <form class="liveform" id="liveForm" autocomplete="off" novalidate></form>
+    <!-- footer CTA: the real ask — get people to reach out. Intentionally loud
+         (accent pill) even though it competes a little with the form's Submit. -->
+    <div class="pitch">
+      <p class="pitch-text">This is a simple demo I threw together in a few hours for a hackathon. I create production versions of tools like this for companies like IBM.</p>
+      <p class="pitch-text">Please reach out if you have a project or idea I could help bring to life.</p>
+      <a class="btn-primary nyc-button nyc-button--primary pitch-btn" href="mailto:jpaulgale@gmail.com?subject=FormSpeak">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        Email me
+      </a>
+    </div>
     <p class="credit credit-foot">This demo was created during the <a href="https://henrygrunzweig.substack.com/p/state-capacity-ai-hackathon-june" target="_blank" rel="noopener">State Capacity AI Hackathon</a> by <a href="https://www.linkedin.com/in/paul-gale" target="_blank" rel="noopener">Paul Gale</a>.</p>
   </div>
 
@@ -135,9 +145,9 @@ const NYC_BOROUGHS = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island
 const FIELDS = [
   // `ac` = HTML autocomplete token (WCAG 1.3.5 Identify Input Purpose). Sensitive /
   // app-specific fields intentionally opt out of autofill with "off".
-  { key: "first_name",    label: "First name", q: "What's your first name?",            hint: "Spell it out if necessary.", ac: "given-name" },
-  { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell it out if necessary.", ac: "family-name" },
-  { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be a NYC address — street and borough (ZIP optional).", ac: "street-address" },
+  { key: "first_name",    label: "First name", q: "What's your first name?",            hint: "Spell if necessary.", ac: "given-name" },
+  { key: "last_name",     label: "Last name",  q: "And your last name?",                hint: "Spell if necessary.", ac: "family-name" },
+  { key: "address",       label: "Address (New York City)", q: "What's your home address in New York City?", hint: "Must be in NYC, and specify the borough.", ac: "street-address" },
   { key: "date_of_birth", label: "Date of birth", q: "What's your date of birth?",      hint: "Month, day and year.", ac: "bday" },
   { key: "phone",         label: "Phone number", q: "What's your phone number?",         hint: "10 digits, or include a country code.", tel: true, ac: "tel" },
   { key: "household_size", label: "Household size", q: "How many people are in your household?", hint: "Everyone who lives and eats together — 1 to 8 or more.", select: ["1", "2", "3", "4", "5", "6", "7", "8 or more"], ph: "Select number of people…", ac: "off" },
@@ -194,11 +204,27 @@ const TOOLS = [{
    ============================================================ */
 const CAPTURE_WORKLET = `
 class Cap extends AudioWorkletProcessor {
-  constructor(){ super(); this.size=1024; this.buf=new Float32Array(this.size); this.i=0; }
+  // Gemini wants 16 kHz PCM. We can't just run the capture AudioContext at 16 kHz —
+  // Firefox refuses to createMediaStreamSource when the mic track's native rate (usually
+  // 44.1/48 kHz) differs from the context rate. So the context runs at the device rate and
+  // we resample to 16 kHz here (linear interpolation; fine for speech after the browser AEC).
+  constructor(o){ super();
+    this.step = ((o && o.processorOptions && o.processorOptions.inRate) || sampleRate) / 16000;
+    this.pos = 0; this.prev = 0;             // fractional read cursor + last sample of prev block
+    this.size = 1024; this.buf = new Float32Array(this.size); this.i = 0; }
   process(inputs){
     const ch = inputs[0] && inputs[0][0];
-    if (ch) for (let n=0;n<ch.length;n++){ this.buf[this.i++]=ch[n];
-      if (this.i>=this.size){ this.port.postMessage(this.buf.slice()); this.i=0; } }
+    if (!ch) return true;
+    const n = ch.length; let pos = this.pos;
+    while (pos < n){
+      const i0 = Math.floor(pos), f = pos - i0;
+      const a = i0 < 0 ? this.prev : ch[i0];
+      if (i0 + 1 >= n) break;                // next sample is in the following block — carry over
+      this.buf[this.i++] = a + (ch[i0 + 1] - a) * f;
+      if (this.i >= this.size){ this.port.postMessage(this.buf.slice()); this.i = 0; }
+      pos += this.step;
+    }
+    this.prev = ch[n - 1]; this.pos = pos - n; // rebase the cursor onto the next block
     return true;
   }
 }
@@ -231,6 +257,9 @@ const state = {
                               // swap its contribution in place without clobbering typed text
   submitted: false,
   micOn: false,
+  talkOver: false,      // demo-only: while true, captured mic frames are dropped (not sent to
+                        // Gemini) WITHOUT ending the turn — hold "q" to talk over the demo to a
+                        // room while the live session stays open, so the model just hears silence
   capCtx: null, capNode: null, micStream: null,
   playCtx: null, playNode: null,
   userBuf: "", asstBuf: "",
@@ -1307,7 +1336,7 @@ function buildForm() {
         ? '<input class="ff-input nyc-textinput" type="tel" inputmode="tel" placeholder="(212) 555-1234"' + ac + " />"
         : '<input class="ff-input nyc-textinput" type="text"' + ac + " />";
       // The eye toggle gets a real accessible name; the visual validation badge is
-      // aria-hidden because screen readers receive the same info via #srAnnounce / #formHint.
+      // aria-hidden because screen readers receive the same info via #srAnnounce.
       const eye = f.sensitive ? '<button type="button" class="ff-eye" data-eye aria-label="Show Social Security number">show</button>' : "";
       return (
         '<label class="ff" data-key="' + f.key + '">' +
@@ -1322,8 +1351,7 @@ function buildForm() {
       '<span class="ff-top"><span class="ff-lab">Any thoughts on this demo?</span><span class="ff-lab-opt">Optional</span></span>' +
       '<span class="ff-inputwrap"><textarea class="ff-input nyc-textarea" id="feedbackInput" rows="2" placeholder="Found a bug? Have a suggestion? Tell me what you think…"></textarea></span>' +
     "</label>" +
-    '<button type="submit" class="ff-submit nyc-button nyc-button--primary" id="formSubmit">Submit form</button>' +
-    '<div class="ff-hint" id="formHint" role="alert" aria-live="assertive"></div>';
+    '<button type="submit" class="ff-submit nyc-button nyc-button--primary" id="formSubmit">Submit form</button>';
 
   // typing → state (no flash, no setField → no loop)
   FIELDS.forEach((f) => {
@@ -1410,7 +1438,6 @@ function buildForm() {
       renderErrorSummary(errors);
       return;
     }
-    $("formHint").textContent = "";
     renderErrorSummary([]); // clear
     showDone();
   });
@@ -1479,7 +1506,6 @@ function renderErrorSummary(errors, refocus = true) {
     if (wrap) wrap.classList.add("invalid");
   });
   box.hidden = false;
-  $("formHint").textContent = "";
   if (refocus) {
     box.focus();
     announce((n === 1 ? "There is 1 problem" : "There are " + n + " problems") + " to fix on the form.");
@@ -1638,14 +1664,23 @@ function spokenValue(f, v) {
    Audio capture (16 kHz PCM16) + playback (24 kHz)
    ============================================================ */
 async function startMic() {
+  // Don't request/force 16 kHz: Firefox honors neither reliably and a mic/context rate
+  // mismatch makes createMediaStreamSource throw. Capture at the device's native rate and
+  // let the worklet resample to the 16 kHz Gemini expects.
   state.micStream = await navigator.mediaDevices.getUserMedia({
-    audio: { sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
-  state.capCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  state.capCtx = new (window.AudioContext || window.webkitAudioContext)();
   await state.capCtx.audioWorklet.addModule(blobURL(CAPTURE_WORKLET));
-  state.capNode = new AudioWorkletNode(state.capCtx, "cap");
+  state.capNode = new AudioWorkletNode(state.capCtx, "cap", {
+    processorOptions: { inRate: state.capCtx.sampleRate },
+  });
   state.capNode.port.onmessage = (e) => {
     if (!state.micOn) return;
+    // Demo "talk over" (hold q): drop frames so nothing reaches Gemini, but DON'T send
+    // audioStreamEnd — the turn stays open and the model simply perceives a silent gap,
+    // so the presenter can speak to the room without the session reacting or closing.
+    if (state.talkOver) { setLevel(0); return; }
     const f32 = e.data;
     // frame energy (RMS)
     let sum = 0; for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
@@ -2011,6 +2046,21 @@ window.addEventListener("pagehide", () => {
   tlog.flush(true);
 });
 $("restartBtn").addEventListener("click", () => location.reload());
+
+// Behind-the-scenes demo control: hold "q" to mute the mic feed into Gemini while the
+// live session stays open (see state.talkOver). Lets the presenter talk over the demo
+// to a room without the model hearing them or ending the turn. Ignored while typing in
+// a field so a literal "q" in the address/feedback inputs still types normally.
+const isTypingTarget = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "q" && e.key !== "Q") return;
+  if (e.repeat || isTypingTarget(e.target)) return;
+  state.talkOver = true;
+});
+window.addEventListener("keyup", (e) => {
+  if (e.key !== "q" && e.key !== "Q") return;
+  state.talkOver = false;
+});
 
 // Pointer-aware initial mic prompt ("Tap"/"Click to start").
 $("micLabel").textContent = TAP + " to start";

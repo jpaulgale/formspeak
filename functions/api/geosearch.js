@@ -80,31 +80,101 @@ async function fetchGeosearch(text) {
   throw lastErr || new Error("geosearch unreachable");
 }
 
+// ---- Fallback geocoder: OpenStreetMap Nominatim, bounded to NYC ----
+// Used ONLY when the primary (Planning Labs Pelias) is unreachable, so the address
+// feature keeps working through their outages. Results are mapped to the SAME shape
+// featureToAddr() produces, so the judging logic below is source-agnostic.
+const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+// left,top,right,bottom (lon/lat) — the five-borough bounding box.
+const NYC_VIEWBOX = "-74.2591,40.9176,-73.7002,40.4774";
+const COUNTY_TO_BOROUGH = {
+  "new york county": "Manhattan",
+  "kings county": "Brooklyn",
+  "queens county": "Queens",
+  "bronx county": "Bronx",
+  "richmond county": "Staten Island",
+};
+
+function boroughFromOSM(a) {
+  // suburb/city_district is usually the borough name outright ("Brooklyn", "Manhattan").
+  for (const c of [a.suburb, a.city_district, a.borough]) {
+    if (c) { const b = detectBorough(String(c).toLowerCase()); if (b) return b; }
+  }
+  const county = String(a.county || "").toLowerCase();
+  return COUNTY_TO_BOROUGH[county] || detectBorough(county);
+}
+
+function osmToAddr(item) {
+  const a = item.address || {};
+  const housenumber = a.house_number || "";
+  const street = a.road || "";
+  const borough = boroughFromOSM(a);
+  const postalcode = a.postcode || "";
+  const name = [housenumber, street].filter(Boolean).join(" ");
+  const tail = "NY" + (postalcode ? ` ${postalcode}` : "");
+  const full = [name, borough, tail].filter(Boolean).join(", ");
+  return {
+    full, label: item.display_name || "", name, housenumber, street, borough,
+    postalcode, region: "NY", lat: item.lat != null ? Number(item.lat) : null,
+    lon: item.lon != null ? Number(item.lon) : null, confidence: null, match_type: null,
+  };
+}
+
+async function fetchNominatim(text) {
+  const u = new URL(NOMINATIM_URL);
+  u.searchParams.set("q", text);
+  u.searchParams.set("format", "json");
+  u.searchParams.set("addressdetails", "1");
+  u.searchParams.set("countrycodes", "us");
+  u.searchParams.set("limit", "8");
+  u.searchParams.set("viewbox", NYC_VIEWBOX);
+  u.searchParams.set("bounded", "1"); // hard-restrict to the NYC box
+  const r = await fetch(u, {
+    signal: AbortSignal.timeout(6000),
+    headers: {
+      "User-Agent": "FormSpeak-demo/1.0 (jpaulgale@gmail.com)",
+      Accept: "application/json",
+    },
+  });
+  if (!r.ok) throw new Error("nominatim " + r.status);
+  return await r.json();
+}
+
 export const onRequestGet = async (ctx) => {
   const text = (new URL(ctx.request.url).searchParams.get("text") || "").trim();
   if (!text) return Response.json({ error: "missing text" }, { status: 400 });
 
-  let data;
+  // Resolve to a common candidate list from whichever geocoder answers. Primary is
+  // Planning Labs Pelias; if it's unreachable we fall back to OSM Nominatim (bounded
+  // to NYC) so the address feature survives their outages. `source` rides along in the
+  // responses for telemetry so a fallback-served confirmation is distinguishable.
+  let cands, source = "pelias";
   try {
-    data = await fetchGeosearch(text);
-  } catch (e) {
-    // Geosearch is unreachable even after a retry. Rather than block the form on a
-    // dead dependency, DEGRADE GRACEFULLY: accept what the user said (carrying a
-    // borough if they named one) as a soft-confirm. `degraded` is flagged so it's
-    // visible in telemetry and the client can be honest that it wasn't verified.
-    const boro = detectBorough(text.toLowerCase());
-    const full = boro && !text.toLowerCase().includes(boro.toLowerCase())
-      ? `${text}, ${boro}` : text;
-    return Response.json({
-      status: "confirmed", found: true, degraded: true,
-      full, borough: boro, label: text, error: String(e?.message || e),
-    });
+    const data = await fetchGeosearch(text);
+    cands = (data?.features || []).map(featureToAddr);
+  } catch (ePelias) {
+    try {
+      const items = await fetchNominatim(text);
+      source = "nominatim";
+      // Drop anything Nominatim couldn't pin to a borough — that's outside NYC.
+      cands = (Array.isArray(items) ? items : []).map(osmToAddr).filter((c) => c.borough);
+    } catch (eNom) {
+      // BOTH geocoders are down. Rather than block the form on a dead dependency,
+      // DEGRADE GRACEFULLY: accept what the user said (carrying a borough if they named
+      // one) as a soft-confirm. `degraded` is flagged so telemetry and the client can be
+      // honest that it wasn't actually verified.
+      const boro = detectBorough(text.toLowerCase());
+      const full = boro && !text.toLowerCase().includes(boro.toLowerCase())
+        ? `${text}, ${boro}` : text;
+      return Response.json({
+        status: "confirmed", found: true, degraded: true,
+        full, borough: boro, label: text,
+        error: `pelias: ${String(ePelias?.message || ePelias)}; nominatim: ${String(eNom?.message || eNom)}`,
+      });
+    }
   }
 
-  const features = data?.features || [];
-  if (!features.length) return Response.json({ status: "not_found", found: false });
-
-  const cands = features.map(featureToAddr);
+  if (!cands.length) return Response.json({ status: "not_found", found: false, source });
 
   // Pelias's fuzzy /search ignores a named borough or ZIP, so "171 E 2nd St, Manhattan"
   // still returns both boroughs — narrow it ourselves before judging ambiguity.
@@ -135,7 +205,7 @@ export const onRequestGet = async (ctx) => {
   const boroughs = [...new Set(same.map((c) => c.borough).filter(Boolean))].sort();
 
   if (hnOk && boroughs.length === 1) {
-    return Response.json({ status: "confirmed", found: true, ...top });
+    return Response.json({ status: "confirmed", found: true, source, ...top });
   }
 
   // Ambiguous: hand back a short, distinct candidate list for the model to offer.
@@ -150,5 +220,5 @@ export const onRequestGet = async (ctx) => {
     if (offered.length >= 4) break;
   }
 
-  return Response.json({ status: "ambiguous", found: true, reason, candidates: offered });
+  return Response.json({ status: "ambiguous", found: true, source, reason, candidates: offered });
 };
