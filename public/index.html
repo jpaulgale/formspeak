@@ -257,9 +257,6 @@ const state = {
                               // swap its contribution in place without clobbering typed text
   submitted: false,
   micOn: false,
-  talkOver: false,      // demo-only: while true, captured mic frames are dropped (not sent to
-                        // Gemini) WITHOUT ending the turn — hold "q" to talk over the demo to a
-                        // room while the live session stays open, so the model just hears silence
   capCtx: null, capNode: null, micStream: null,
   playCtx: null, playNode: null,
   userBuf: "", asstBuf: "",
@@ -1677,10 +1674,6 @@ async function startMic() {
   });
   state.capNode.port.onmessage = (e) => {
     if (!state.micOn) return;
-    // Demo "talk over" (hold q): drop frames so nothing reaches Gemini, but DON'T send
-    // audioStreamEnd — the turn stays open and the model simply perceives a silent gap,
-    // so the presenter can speak to the room without the session reacting or closing.
-    if (state.talkOver) { setLevel(0); return; }
     const f32 = e.data;
     // frame energy (RMS)
     let sum = 0; for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
@@ -2046,21 +2039,6 @@ window.addEventListener("pagehide", () => {
   tlog.flush(true);
 });
 $("restartBtn").addEventListener("click", () => location.reload());
-
-// Behind-the-scenes demo control: hold "q" to mute the mic feed into Gemini while the
-// live session stays open (see state.talkOver). Lets the presenter talk over the demo
-// to a room without the model hearing them or ending the turn. Ignored while typing in
-// a field so a literal "q" in the address/feedback inputs still types normally.
-const isTypingTarget = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-window.addEventListener("keydown", (e) => {
-  if (e.key !== "q" && e.key !== "Q") return;
-  if (e.repeat || isTypingTarget(e.target)) return;
-  state.talkOver = true;
-});
-window.addEventListener("keyup", (e) => {
-  if (e.key !== "q" && e.key !== "Q") return;
-  state.talkOver = false;
-});
 
 // Pointer-aware initial mic prompt ("Tap"/"Click to start").
 $("micLabel").textContent = TAP + " to start";
