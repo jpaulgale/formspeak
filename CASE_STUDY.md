@@ -32,6 +32,18 @@ Meanwhile, the latest voice-driven AI models process casually-delivered informat
 
 The question is what that interface actually looks like.
 
+## Where the Idea Came From
+
+Good ideas have a lineage, and this one is worth tracing.
+
+It starts with **Ramble**, Todoist's voice-capture feature: you talk freely — half-formed, out of order, thinking out loud — and it turns the mess into structured tasks. I'd read Google's Gemini case study on it and listened to a podcast conversation with the developers behind it, and the thing that stuck with me was how *forgiving* it was. No commands, no dictation posture. You ramble; structure comes out the other side.
+
+I borrowed that pattern for a client project first: a **Brain Dump** feature in a storefront-management system I built for an EV dealership. Instead of clicking through records to make updates, staff could just talk through what changed and let the system sort the ramble into structured data. It worked well enough to change how I thought about voice — not as an alternative interface, but as a faster way *into* an existing one.
+
+The hackathon thought was one small step further: **what if I could use that to fill out a form via voice, while still retaining the typical control surface of the standard form?** Not voice replacing the form — voice layered onto it, with every field still visible, tappable, and editable underneath.
+
+The lineage is right there in the git history: the prototype was literally named *Ramble* for its first two days, before the rename to FormSpeak.
+
 ## The Thesis: Not Another Chatbot
 
 We're still figuring out how these new tools integrate with typical interfaces, and the default answer — wrap everything in a chat window — is often wrong. Using a chatbot to make little tweaks to a document is a frustrating waste of time.
