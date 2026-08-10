@@ -127,6 +127,7 @@ def main() -> None:
     ap.add_argument("session_id", nargs="?", help="show full event timeline for one session")
     ap.add_argument("--limit", type=int, default=30, help="max sessions (default 30)")
     ap.add_argument("--abandoned", action="store_true", help="only sessions that never submitted")
+    ap.add_argument("--test", action="store_true", help="only test/QA sessions (default hides them)")
     ap.add_argument("--closes", action="store_true", help="ws_close code breakdown")
     ap.add_argument("--json", action="store_true", help="print raw JSON")
     args = ap.parse_args()
@@ -138,7 +139,10 @@ def main() -> None:
         closes_breakdown()
         return
 
-    where = "WHERE submitted = 0" if args.abandoned else ""
+    conds = ["is_test = 1" if args.test else "is_test = 0"]
+    if args.abandoned:
+        conds.append("submitted = 0")
+    where = "WHERE " + " AND ".join(conds)
     rows = query(
         f"SELECT session_id, submitted, event_count, country, region, city, colo, "
         f"substr(ip_hash,1,10) AS ip_hash, started_at, last_seen "

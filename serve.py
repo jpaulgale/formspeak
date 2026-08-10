@@ -188,11 +188,15 @@ async def log_events(request: web.Request) -> web.Response:
 
     sid = _sql_str(session_id)
     n = len(events)
+    # Test/QA sessions (eval-harness runs, ?test=1 demos) announce themselves with
+    # a 'test-' session-id prefix so analytics can exclude them (sessions.is_test).
+    is_test = 1 if session_id.startswith("test-") else 0
     stmts = [
-        f"INSERT INTO sessions (session_id, ip_hash, event_count, submitted) "
-        f"VALUES ({sid}, {_sql_str(ip_hash)}, {n}, {submitted}) "
+        f"INSERT INTO sessions (session_id, ip_hash, event_count, submitted, is_test) "
+        f"VALUES ({sid}, {_sql_str(ip_hash)}, {n}, {submitted}, {is_test}) "
         f"ON CONFLICT(session_id) DO UPDATE SET last_seen=datetime('now'), "
-        f"event_count=event_count+{n}, submitted=MAX(submitted,{submitted});"
+        f"event_count=event_count+{n}, submitted=MAX(submitted,{submitted}), "
+        f"is_test=MAX(is_test,{is_test});"
     ]
     for e in events:
         payload = json.dumps(e.get("data") or {})[:20000]
@@ -389,8 +393,15 @@ async def serve_static(request: web.Request) -> web.Response:
     path = (request.match_info.get("path") or "index.html").lstrip("/")
     if ".." in path:
         return web.Response(text="nope", status=400)
-    # Static assets live in ./public (the Cloudflare Pages build output dir).
-    file_path = HERE / "public" / (path or "index.html")
+    # /tests/… serves the eval corpus (manifest + WAV clips) for the ?test=1
+    # in-app clip injector. Local-dev only — never deployed to Pages.
+    if path == "tests/manifest.json":
+        file_path = HERE / "tests" / "audio" / "manifest.json"
+    elif path.startswith("tests/audio/"):
+        file_path = HERE / "tests" / "audio" / path[len("tests/audio/"):]
+    else:
+        # Static assets live in ./public (the Cloudflare Pages build output dir).
+        file_path = HERE / "public" / (path or "index.html")
     if not file_path.is_file():
         return web.Response(text="not found", status=404)
     ctype, _ = mimetypes.guess_type(str(file_path))

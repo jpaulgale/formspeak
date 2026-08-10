@@ -48,14 +48,19 @@ export const onRequestPost = async (ctx) => {
     ? 1
     : 0;
 
+  // Test/QA sessions (eval-harness runs, ?test=1 demos) announce themselves with a
+  // 'test-' session-id prefix so analytics can exclude them (sessions.is_test).
+  const isTest = sessionId.startsWith("test-") ? 1 : 0;
+
   const stmts = [
     env.DB.prepare(
-      `INSERT INTO sessions (session_id, ip_hash, country, region, city, colo, as_org, user_agent, event_count, submitted)
-       VALUES (?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO sessions (session_id, ip_hash, country, region, city, colo, as_org, user_agent, event_count, submitted, is_test)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(session_id) DO UPDATE SET
          last_seen   = datetime('now'),
          event_count = event_count + ?,
-         submitted   = MAX(submitted, ?)`,
+         submitted   = MAX(submitted, ?),
+         is_test     = MAX(is_test, ?)`,
     ).bind(
       sessionId,
       ipHash,
@@ -69,8 +74,10 @@ export const onRequestPost = async (ctx) => {
       ua,
       events.length,
       submitted,
+      isTest,
       events.length,
       submitted,
+      isTest,
     ),
   ];
 

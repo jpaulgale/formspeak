@@ -10,6 +10,11 @@ Reads the remote D1 through the already-authenticated `wrangler` CLI (no API
 token). Click a session in the sidebar to replay the whole conversation as a
 chat transcript — user/assistant bubbles, every tool call with its outcome, and
 problems (errors, ws closes, unconfirmed fields) flagged in red. Stdlib only.
+
+The pulled data is snapshotted to .dashboard_cache.json next to this script, so
+after the first run the dashboard opens instantly from disk and only fetches
+events NEWER than the cached high-water mark (events.id is append-only). Pass
+--fresh to discard the snapshot and re-pull everything.
 """
 import json
 import subprocess
@@ -17,10 +22,12 @@ import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
 
 DB = "ramble-form-hackathon"
 PORT = 8787
+CACHE_FILE = Path(__file__).with_name(".dashboard_cache.json")
 
 
 def query(*sqls: str) -> list[list[dict]]:
@@ -42,41 +49,107 @@ def query(*sqls: str) -> list[list[dict]]:
     return [rs["results"] for rs in json.loads(out.stdout)]
 
 
-# In-memory mirror of the remote D1. The dataset is tiny (dozens of sessions, ~hundreds
-# of events), so we fetch it all in a single round trip on startup and serve every request
-# from RAM — instant clicks, no per-request wrangler spawn. /api/refresh re-pulls.
-_CACHE: dict = {"sessions_by_id": {}, "events_by_id": {}}
+# In-memory mirror of the remote D1, backed by CACHE_FILE on disk. Events are append-only
+# with an autoincrement id, so refresh() only pulls rows past max_event_id and merges them
+# in; sessions are refetched whole (one small row each — and their last_seen/event_count/
+# submitted mutate in place, so a delta fetch would miss updates). /api/refresh re-pulls.
+_CACHE: dict = {"sessions_by_id": {}, "events_by_id": {}, "max_event_id": 0}
+_REFRESH_LOCK = threading.Lock()
+_REFRESHING = False  # surfaced to the frontend so it can show "syncing…" and re-poll
+
+
+def load_cache_file() -> bool:
+    try:
+        d = json.loads(CACHE_FILE.read_text())
+        if not isinstance(d.get("sessions_by_id"), dict):
+            return False
+        _CACHE["sessions_by_id"] = d["sessions_by_id"]
+        _CACHE["events_by_id"] = d.get("events_by_id") or {}
+        _CACHE["max_event_id"] = int(d.get("max_event_id") or 0)
+        return bool(_CACHE["sessions_by_id"])
+    except (OSError, ValueError):
+        return False
+
+
+def save_cache_file() -> None:
+    tmp = CACHE_FILE.with_name(CACHE_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(_CACHE, separators=(",", ":")))
+    tmp.replace(CACHE_FILE)  # atomic — a crash mid-write never corrupts the snapshot
 
 
 def refresh() -> None:
-    sess_rows, event_rows = query(
-        "SELECT session_id, submitted, event_count, country, region, city, colo, as_org, "
-        "substr(ip_hash,1,10) AS ip_hash, user_agent, started_at, last_seen "
-        "FROM sessions ORDER BY last_seen DESC;",
-        "SELECT session_id, seq, type, payload, client_ts FROM events ORDER BY session_id, seq ASC;",
-    )
-    events_by_id: dict[str, list[dict]] = {}
-    for e in event_rows:
+    global _REFRESHING
+    with _REFRESH_LOCK:
+        _REFRESHING = True
         try:
-            e["data"] = json.loads(e.get("payload") or "{}")
-        except json.JSONDecodeError:
-            e["data"] = {}
-        e.pop("payload", None)
-        events_by_id.setdefault(e["session_id"], []).append(e)
-    _CACHE["sessions_by_id"] = {s["session_id"]: s for s in sess_rows}
-    _CACHE["events_by_id"] = events_by_id
+            since = int(_CACHE.get("max_event_id") or 0)
+            sess_rows, event_rows = query(
+                "SELECT session_id, submitted, event_count, country, region, city, colo, as_org, "
+                "substr(ip_hash,1,10) AS ip_hash, user_agent, started_at, last_seen, is_test "
+                "FROM sessions ORDER BY last_seen DESC;",
+                "SELECT id, session_id, seq, type, payload, client_ts FROM events "
+                f"WHERE id > {since} ORDER BY id ASC;",
+            )
+            events_by_id = _CACHE["events_by_id"]
+            touched = set()
+            for e in event_rows:
+                try:
+                    e["data"] = json.loads(e.get("payload") or "{}")
+                except json.JSONDecodeError:
+                    e["data"] = {}
+                e.pop("payload", None)
+                events_by_id.setdefault(e["session_id"], []).append(e)
+                touched.add(e["session_id"])
+                _CACHE["max_event_id"] = max(_CACHE["max_event_id"], int(e.get("id") or 0))
+            # New events arrive ordered by id (insert order); a late batch flush can land
+            # after a later seq, so re-sort just the sessions that actually got rows.
+            for sid in touched:
+                events_by_id[sid].sort(key=lambda e: (e.get("seq") or 0, e.get("id") or 0))
+            _CACHE["sessions_by_id"] = {s["session_id"]: s for s in sess_rows}
+            save_cache_file()
+        finally:
+            _REFRESHING = False
 
 
 def sessions() -> list[dict]:
     # Skip single-event sessions: a lone session_start (or a bot's one-off hit) with no
     # real activity is just noise in the list, never a conversation worth replaying.
-    rows = [s for s in _CACHE["sessions_by_id"].values() if (s.get("event_count") or 0) > 1]
+    # Also hide test/QA sessions (is_test — eval-harness runs, ?test=1 demos); their
+    # detail pages stay reachable by session id.
+    rows = [
+        s for s in _CACHE["sessions_by_id"].values()
+        if (s.get("event_count") or 0) > 1 and not s.get("is_test")
+    ]
     return rows[:500]  # already sorted by last_seen DESC at fetch time
 
 
 def session_detail(sid: str) -> dict:
     sess = _CACHE["sessions_by_id"].get(sid, {"session_id": sid})
     return {"session": sess, "events": _CACHE["events_by_id"].get(sid, [])}
+
+
+def _sql_str(v: str) -> str:
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def delete_sessions(ids: list[str]) -> int:
+    """Delete sessions + their event streams from remote D1 and the local cache.
+    Deliberately does NOT touch `submissions` — those are the captured form
+    records; a deleted garbage/test session has none anyway."""
+    ids = [str(s)[:64] for s in ids if isinstance(s, str) and s.strip()][:200]
+    if not ids:
+        return 0
+    id_list = ", ".join(_sql_str(s) for s in ids)
+    with _REFRESH_LOCK:   # don't race a refresh() writing the same cache
+        query(
+            f"DELETE FROM events WHERE session_id IN ({id_list});",
+            f"DELETE FROM sessions WHERE session_id IN ({id_list});",
+        )
+        for sid in ids:
+            _CACHE["sessions_by_id"].pop(sid, None)
+            _CACHE["events_by_id"].pop(sid, None)
+        save_cache_file()
+    return len(ids)
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -104,9 +177,23 @@ INDEX_HTML = r"""<!doctype html>
     font:inherit;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
   .filters button.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .list{overflow-y:auto;flex:1}
-  .row{padding:11px 16px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+  .row{padding:11px 16px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:10px;align-items:flex-start;user-select:none}
   .row:hover{background:#fafbfc}
   .row.sel{background:#eef2ff;box-shadow:inset 3px 0 0 var(--accent)}
+  .row.picked{background:#fff1f1;box-shadow:inset 3px 0 0 var(--bad)}
+  .row.picked.sel{background:#f3e8ff}
+  /* selection bar + context menu (shift-click / right-click delete) */
+  .selbar{display:none;align-items:center;gap:8px;margin-top:10px;background:#fff1f1;
+    border:1px solid #f1c4c4;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;color:var(--bad)}
+  .selbar.on{display:flex}
+  .selbar button{border:1px solid #f1c4c4;background:#fff;color:var(--bad);border-radius:6px;
+    padding:3px 10px;font:inherit;font-weight:700;cursor:pointer}
+  .selbar .clear{color:var(--muted);border-color:var(--line)}
+  .ctx{position:fixed;z-index:999;background:#fff;border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 8px 30px rgba(0,0,0,.14);padding:4px;min-width:180px}
+  .ctx button{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;
+    font-size:13px;padding:8px 12px;border-radius:7px;cursor:pointer}
+  .ctx button:hover{background:#fdeaea;color:var(--bad)}
   .stat{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none;background:#cbd2dc}
   .stat.done{background:var(--ok)}
   .row .meta{min-width:0;flex:1}
@@ -181,6 +268,11 @@ INDEX_HTML = r"""<!doctype html>
         <button data-f="abandoned">Didn’t submit</button>
         <button data-f="submitted">Submitted</button>
       </div>
+      <div class="selbar" id="selbar">
+        <span id="selcount"></span>
+        <button id="seldelete">Delete</button>
+        <button class="clear" id="selclear">Clear</button>
+      </div>
     </div>
     <div class="list" id="list"></div>
   </aside>
@@ -197,12 +289,19 @@ INDEX_HTML = r"""<!doctype html>
 <script>
 const $=s=>document.querySelector(s);
 let ALL=[], FILTER="all", SEL=null;
+// Multi-select for cleanup: shift-click = range, cmd/ctrl-click = toggle,
+// right-click = context menu with Delete. Plain click still opens the session.
+const PICKED=new Set(); let ANCHOR=null;
 const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const ago=t=>t?String(t).replace("T"," ").slice(5,16):"";
 
 async function load(url="/api/sessions"){
   $("#count").textContent="loading…";
-  const r=await fetch(url); ALL=await r.json(); render();
+  const r=await fetch(url); const d=await r.json();
+  ALL=d.sessions||d; render();
+  // Server is showing us its disk snapshot while a background D1 pull runs —
+  // say so, and re-poll until the fresh data lands.
+  if(d.refreshing){ $("#count").textContent+=" · syncing…"; setTimeout(()=>load(),2000); }
 }
 $("#reload").onclick=()=>load("/api/refresh");
 function render(){
@@ -211,7 +310,7 @@ function render(){
   $("#count").textContent=`${ALL.length} sessions · ${done} submitted · ${ALL.length-done} didn’t`;
   $("#list").innerHTML=rows.map(s=>{
     const geo=[s.city,s.region,s.country].filter(Boolean).join(", ")||"unknown";
-    return `<div class="row ${s.session_id===SEL?'sel':''}" data-id="${s.session_id}">
+    return `<div class="row ${s.session_id===SEL?'sel':''} ${PICKED.has(s.session_id)?'picked':''}" data-id="${s.session_id}">
       <div class="stat ${s.submitted?'done':''}"></div>
       <div class="meta">
         <div class="top"><span class="id">${s.session_id.slice(0,8)}</span><span class="when">${ago(s.last_seen)}</span></div>
@@ -219,7 +318,59 @@ function render(){
         <div class="n">${s.event_count} events${s.as_org?" · "+esc(s.as_org):""}</div>
       </div></div>`;
   }).join("")||`<div class="empty">No sessions.</div>`;
-  document.querySelectorAll(".row").forEach(r=>r.onclick=()=>open(r.dataset.id));
+  const order=rows.map(s=>s.session_id);
+  document.querySelectorAll(".row").forEach(r=>{
+    const id=r.dataset.id;
+    r.onclick=(e)=>{
+      if(e.shiftKey||e.metaKey||e.ctrlKey){
+        e.preventDefault();
+        if(e.shiftKey&&ANCHOR&&order.includes(ANCHOR)){
+          const [a,b]=[order.indexOf(ANCHOR),order.indexOf(id)].sort((x,y)=>x-y);
+          order.slice(a,b+1).forEach(x=>PICKED.add(x));
+        }else{
+          PICKED.has(id)?PICKED.delete(id):PICKED.add(id);
+        }
+        ANCHOR=id; render(); return;
+      }
+      open(id);
+    };
+    r.oncontextmenu=(e)=>{
+      e.preventDefault();
+      if(!PICKED.has(id)){ PICKED.add(id); ANCHOR=id; render(); }
+      ctxMenu(e.clientX,e.clientY);
+    };
+  });
+  selBar();
+}
+function selBar(){
+  $("#selbar").classList.toggle("on",PICKED.size>0);
+  $("#selcount").textContent=`${PICKED.size} selected`;
+}
+$("#selclear").onclick=()=>{PICKED.clear();ANCHOR=null;render();};
+$("#seldelete").onclick=()=>delPicked();
+function ctxMenu(x,y){
+  closeCtx();
+  const m=document.createElement("div");
+  m.className="ctx"; m.id="ctx";
+  m.innerHTML=`<button>🗑 Delete ${PICKED.size} session${PICKED.size===1?"":"s"}</button>`;
+  m.style.left=Math.min(x,innerWidth-200)+"px"; m.style.top=Math.min(y,innerHeight-60)+"px";
+  m.querySelector("button").onclick=()=>{closeCtx();delPicked();};
+  document.body.appendChild(m);
+  setTimeout(()=>addEventListener("click",closeCtx,{once:true}));
+}
+function closeCtx(){document.getElementById("ctx")?.remove();}
+async function delPicked(){
+  if(!PICKED.size) return;
+  const ids=[...PICKED];
+  if(!confirm(`Delete ${ids.length} session(s) and their events from D1? This can't be undone.`)) return;
+  $("#selcount").textContent="deleting…";
+  const r=await fetch("/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({session_ids:ids})});
+  const d=await r.json();
+  if(d.error){ alert("Delete failed: "+d.error); return; }
+  PICKED.clear(); ANCHOR=null;
+  if(ids.includes(SEL)){ SEL=null; $("#stream").innerHTML=`<div class="empty">← Pick a session to replay its conversation.</div>`; $("#mhead").style.display="none"; }
+  ALL=d.sessions||[]; render();
 }
 document.querySelectorAll(".filters button").forEach(b=>b.onclick=()=>{
   FILTER=b.dataset.f; document.querySelectorAll(".filters button").forEach(x=>x.classList.toggle("on",x===b)); render();
@@ -342,10 +493,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/" or path == "/index.html":
                 return self._send(200, INDEX_HTML, "text/html; charset=utf-8")
             if path == "/api/sessions":
-                return self._send(200, json.dumps(sessions()))
+                return self._send(200, json.dumps({"sessions": sessions(), "refreshing": _REFRESHING}))
             if path == "/api/refresh":
                 refresh()
-                return self._send(200, json.dumps(sessions()))
+                return self._send(200, json.dumps({"sessions": sessions(), "refreshing": False}))
             if path.startswith("/api/session/"):
                 sid = path.rsplit("/", 1)[-1]
                 return self._send(200, json.dumps(session_detail(sid)))
@@ -353,12 +504,39 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._send(500, json.dumps({"error": str(e)}))
 
+    def do_POST(self):
+        path = urlparse(self.path).path
+        try:
+            if path == "/api/delete":
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}")
+                deleted = delete_sessions(body.get("session_ids") or [])
+                return self._send(200, json.dumps(
+                    {"deleted": deleted, "sessions": sessions(), "refreshing": _REFRESHING}))
+            self._send(404, json.dumps({"error": "not found"}))
+        except Exception as e:  # noqa: BLE001
+            self._send(500, json.dumps({"error": str(e)}))
+
+
+def _refresh_in_background() -> None:
+    try:
+        refresh()
+    except Exception as e:  # noqa: BLE001
+        print(f"background refresh failed (serving cached snapshot): {e}", file=sys.stderr)
+
 
 def main() -> None:
-    try:
-        refresh()  # one round trip; fail fast if wrangler/auth is broken
-    except Exception as e:  # noqa: BLE001
-        sys.exit(f"Couldn't read D1 via wrangler:\n{e}")
+    if "--fresh" in sys.argv:
+        CACHE_FILE.unlink(missing_ok=True)
+    if load_cache_file():
+        # Open instantly from the disk snapshot; pull only new events in the background.
+        print(f"loaded snapshot from {CACHE_FILE.name} — syncing new events in background")
+        threading.Thread(target=_refresh_in_background, daemon=True).start()
+    else:
+        try:
+            refresh()  # first run: one full pull; fail fast if wrangler/auth is broken
+        except Exception as e:  # noqa: BLE001
+            sys.exit(f"Couldn't read D1 via wrangler:\n{e}")
     # Bind all interfaces so the dashboard is reachable over Tailscale, not just
     # localhost. (127.0.0.1 is invisible to the tailnet.)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

@@ -4,3 +4,9 @@ __pycache__/
 .wrangler/
 .submit.sql
 .env
+.dashboard_cache.json*
+.env.livekit
+.env.local
+tests/audio/
+tests/results/
+.log.sql
