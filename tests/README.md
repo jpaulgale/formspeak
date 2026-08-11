@@ -21,9 +21,14 @@ when its API ships.
 - `make_corpus.py` — renders every turn to 16 kHz WAV via Gemini TTS
   (`tests/audio/`, cached by content hash; voices rotate per scenario).
 - `formspeak_env.py` — the "virtual browser": extracts the system instruction
-  from `public/index.html` at runtime, ports its validators, and reproduces
-  `dispatchTool()`'s response strings exactly. Address checks hit the real
-  `/api/geosearch` on `serve.py` (spawned automatically if not running).
+  from `public/js/prompt.js` at runtime, ports the validators in
+  `public/js/validators.js`, and reproduces `tools.js`'s response strings
+  exactly. Address checks hit the real `/api/geosearch` on `serve.py` (spawned
+  automatically if not running).
+- `unit/` + `js/` + `fixtures/` — plain unit tests against the shipped code:
+  `npm test` runs the fixture cases through `public/js/validators.js` itself;
+  `uv run pytest` runs the same cases through the Python ports, so drift
+  between app and harness fails loudly.
 - Runners stream clips at real-time pace, answer tool calls via the virtual
   form, and write `tests/results/<backend>/<scenario>.json`.
 - `score.py` — grades per-turn expectations, final form state, submit

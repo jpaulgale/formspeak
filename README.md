@@ -137,11 +137,17 @@ Accessibility is the premise of the project, not a retrofit:
   household phrasing, unlisted languages, premature submit
 - `make_corpus.py` — renders every turn to 16 kHz WAV via TTS, cached by content hash
 - `formspeak_env.py` — a "virtual browser" that extracts the **live** system
-  instruction from `public/index.html` at runtime, ports its validators, and
+  instruction from `public/js/prompt.js` at runtime, ports its validators, and
   reproduces the real tool-response strings. Address checks hit the real
   geocoder endpoint.
 - `score.py` — grades per-turn expectations, final form state, submit
   guardrails, and latency
+
+There are also plain unit tests, and they run against the shipped code, not a
+copy: `npm test` imports `public/js/validators.js` under Node, and
+`uv run pytest` runs the **same** cases (`tests/fixtures/validator-cases.json`)
+against the Python ports — a case failing on one side but not the other means
+the eval harness has drifted from the app.
 
 **[tests/REPORT.md](tests/REPORT.md)** is the writeup: a head-to-head of Gemini
 Live vs. `gpt-realtime-2.1` vs. a LiveKit STT→Gemma pipeline, with identical
@@ -151,7 +157,7 @@ rates, latency, cost per session, and data posture.
 ## Observability
 
 Every session streams its events — transcripts, tool calls, connection drops —
-to a small database. `dashboard.py` replays any session as a chat transcript:
+to a small database. `tools/dashboard.py` replays any session as a chat transcript:
 user and assistant bubbles, every tool call with its outcome, problems flagged
 in red. Nearly every post-launch fix traces back to a replayed session.
 
@@ -183,18 +189,24 @@ npx wrangler d1 execute <your-database-name> --remote --file schema.sql
 ## Layout
 
 ```
-public/index.html   the whole app — UI, Live client, audio worklets (~2,000 lines)
-public/styles.css
-functions/api/      token minting, geosearch proxy, submit, telemetry
+public/
+  index.html        markup only — the app boots from js/main.js
+  js/               native ES modules: config, prompt, validators, audio
+                    (echo suppression), live session, form, card, tools…
+  worklets/         AudioWorklet processors (16 kHz capture, 24 kHz playback)
+  styles.css
+functions/api/      Pages Functions — token minting, geosearch, submit, telemetry
 serve.py            local dev server + ephemeral token minting
-dashboard.py        local session-replay dashboard
-tests/              voice-backend eval harness (see REPORT.md)
+tools/              local admin — session-replay dashboard, D1 views (shared d1.py)
+tests/              voice-backend eval harness (see REPORT.md) + unit tests
 schema.sql          D1 schema
 migrations/
 ```
 
-No framework, no build step — about 3,000 lines total. For an experiment like
-this that's a feature: every decision described above is readable in one sitting.
+No framework, no build step — the browser loads the modules natively, and a
+`modulepreload` manifest keeps the graph a single parallel fetch. Each module
+owns one subsystem and is readable on its own; **[ARCHITECTURE.md](ARCHITECTURE.md)**
+has the module map and the data flows.
 
 ## How this was built
 
