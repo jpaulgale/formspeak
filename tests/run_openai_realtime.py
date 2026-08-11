@@ -10,7 +10,7 @@
 
 Architecturally 1:1 with the shipped Gemini Live setup: one WebSocket, native
 audio in/out, function calling. Same system instruction (extracted from
-index.html), same VirtualForm tool responses, same corpus, same telemetry
+public/js/prompt.js), same VirtualForm tool responses, same corpus, same telemetry
 flagging (`test-` session prefix → is_test=1).
 
     uv run tests/run_openai_realtime.py                    # all scenarios

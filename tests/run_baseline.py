@@ -9,7 +9,7 @@
 """FormSpeak backend eval — BASELINE runner (Gemini Live, the shipped setup).
 
 Drives the exact session the browser would: same model, system instruction
-(extracted from index.html), tools, VAD config, and client-side tool responses
+(extracted from public/js/prompt.js), tools, VAD config, and client-side tool responses
 (via formspeak_env.VirtualForm + the real /api/geosearch on serve.py). Streams
 the TTS corpus clips at real-time pace, records every tool call + transcript +
 latency, and writes one JSON result per scenario.
@@ -48,7 +48,7 @@ from scenarios import SCENARIOS  # noqa: E402
 from serve import load_api_key  # noqa: E402
 
 BACKEND = "gemini-live"
-MODEL = "gemini-3.1-flash-live-preview"   # keep in lockstep with index.html
+MODEL = "gemini-3.1-flash-live-preview"   # keep in lockstep with public/js/config.js
 VOICE = "Aoede"
 RATE = 16_000
 CHUNK_MS = 128                             # realtime pacing chunk

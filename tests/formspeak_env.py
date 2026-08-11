@@ -1,15 +1,17 @@
 """Shared "virtual browser" for the FormSpeak model evals.
 
-The real app (public/index.html) owns three things the model's behavior depends
-on: the system instruction, the tool declarations, and the client-side tool
-RESPONSES (validation verdicts, geosearch outcomes). This module reproduces all
-three for headless harnesses so both backends under test (Gemini Live baseline,
-LiveKit Gemma-4 candidate) see exactly what the browser would send them.
+The real app (public/js/) owns three things the model's behavior depends
+on: the system instruction (prompt.js), the tool declarations, and the
+client-side tool RESPONSES (validation verdicts, geosearch outcomes — tools.js).
+This module reproduces all three for headless harnesses so both backends under
+test (Gemini Live baseline, LiveKit Gemma-4 candidate) see exactly what the
+browser would send them.
 
-- The system instruction is EXTRACTED from index.html at runtime (not copied),
-  so the eval can never drift from the shipped prompt.
+- The system instruction is EXTRACTED from public/js/prompt.js at runtime (not
+  copied), so the eval can never drift from the shipped prompt.
 - Validators (phone/dob/household/income) and the tool-dispatch response
-  strings are line-for-line ports of index.html's dispatchTool().
+  strings are line-for-line ports of public/js/validators.js and tools.js —
+  tests/fixtures/validator-cases.json holds shared cases both sides must pass.
 - Address verification calls the same /api/geosearch endpoint the browser uses
   (serve.py must be running), so verdicts are byte-identical.
 """
@@ -21,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HERE = Path(__file__).parent
-INDEX_HTML = HERE.parent / "public" / "index.html"
+PROMPT_JS = HERE.parent / "public" / "js" / "prompt.js"
 SERVE_BASE = "http://localhost:8000"
 
 FIELD_KEYS = [
@@ -29,7 +31,7 @@ FIELD_KEYS = [
     "household_size", "household_income", "preferred_language",
 ]
 
-# (key, label, question) — mirrors FIELDS in index.html; used by resume_context().
+# (key, label, question) — mirrors FIELDS in public/js/config.js; used by resume_context().
 FIELD_META = [
     ("first_name", "First name", "What's your first name?"),
     ("last_name", "Last name", "And your last name?"),
@@ -133,18 +135,18 @@ def parse_env_file(path: Path) -> dict[str, str]:
 
 
 def system_instruction() -> str:
-    """Pull SYSTEM_INSTRUCTION out of index.html (the single source of truth)."""
-    src = INDEX_HTML.read_text()
-    m = re.search(r"const SYSTEM_INSTRUCTION = `(.*?)`;", src, re.DOTALL)
+    """Pull SYSTEM_INSTRUCTION out of public/js/prompt.js (the single source of truth)."""
+    src = PROMPT_JS.read_text()
+    m = re.search(r"export const SYSTEM_INSTRUCTION = `(.*?)`;", src, re.DOTALL)
     if not m:
-        raise RuntimeError("SYSTEM_INSTRUCTION not found in index.html")
+        raise RuntimeError("SYSTEM_INSTRUCTION not found in public/js/prompt.js")
     text = m.group(1)
     # The browser interpolates ${tap}/${TAP} by pointer type; evals are "taps".
     return text.replace("${tap}", "tap").replace("${TAP}", "Tap")
 
 
 def tool_declarations() -> list[dict]:
-    """Same function declarations as index.html's TOOLS (plain-dict form)."""
+    """Same function declarations as public/js/prompt.js's TOOLS (plain-dict form)."""
     return [{
         "function_declarations": [
             {
@@ -186,7 +188,8 @@ def tool_declarations() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Validators — ports of index.html (keep in lockstep with the app)
+# Validators — ports of public/js/validators.js (keep in lockstep with the app;
+# tests/unit + tests/js run the same fixture cases against both sides)
 # ---------------------------------------------------------------------------
 
 def phone_digits(v: str) -> str:
@@ -255,7 +258,7 @@ def income_info(v: str) -> dict:
     return {"ok": True, "amt": amt}
 
 
-# Apartment/unit peeling — port of splitUnit()/withUnit() in index.html.
+# Apartment/unit peeling — port of splitUnit()/withUnit() in public/js/validators.js.
 UNIT_KW = (
     "apt|apartment|unit|ste|suite|rm|room|fl|floor|bldg|building|dept|department|"
     "lot|spc|space|trlr|trailer|hngr|hangar|slip|pier|penthouse|ph|no"
@@ -299,7 +302,7 @@ def with_unit(full: str, unit: str) -> str:
 @dataclass
 class VirtualForm:
     """Headless stand-in for the browser UI: holds field state and produces the
-    exact tool-response strings index.html would send back to the model."""
+    exact tool-response strings public/js/tools.js would send back to the model."""
 
     geosearch: object  # async callable: (text) -> dict (the /api/geosearch JSON)
     values: dict = field(default_factory=dict)

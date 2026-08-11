@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Voice-fillable NYC benefits form — static app + Cloudflare Pages Functions",
   "scripts": {
-    "test": "node --test tests/js/"
+    "test": "node --test tests/js/*.test.js"
   }
 }

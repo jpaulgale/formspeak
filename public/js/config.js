@@ -7,7 +7,10 @@ export const VOICE = "Aoede";
 
 // "Tap" on touch devices, "Click" on a mouse/desktop pointer — used in all
 // user-facing prompts so the verb matches how the person actually interacts.
-export const POINTER_COARSE = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+// (The typeof guard keeps this module importable outside a browser — the unit
+// tests load it under Node, where there is no window.)
+export const POINTER_COARSE =
+  typeof window !== "undefined" && !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
 export const TAP = POINTER_COARSE ? "Tap" : "Click";
 export const tap = POINTER_COARSE ? "tap" : "click";
 

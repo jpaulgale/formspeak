@@ -1,0 +1,52 @@
+{
+  "_comment": "Shared validator cases. tests/js/validators.test.js runs them against the SHIPPED public/js/validators.js; tests/unit/test_validators_parity.py runs the same cases against the Python ports in tests/formspeak_env.py. A case failing on one side but not the other means the port has drifted. Expected keys are checked when present: ok always; reason/n/year/amt/intl when listed.",
+  "phone": [
+    { "input": "2125551234",        "ok": true,  "n": 10 },
+    { "input": "(212) 555-1234",    "ok": true,  "n": 10 },
+    { "input": "1 212 555 1234",    "ok": true,  "n": 11 },
+    { "input": "908770",            "ok": false, "reason": "short", "n": 6 },
+    { "input": "542",               "ok": false, "reason": "short", "n": 3 },
+    { "input": "+44 20 7946 0958",  "ok": true,  "intl": true, "n": 12 },
+    { "input": "+1234567",          "ok": false, "reason": "short", "n": 7 },
+    { "input": "123456789012",      "ok": false, "reason": "needsplus", "n": 12 },
+    { "input": "+1234567890123456", "ok": false, "reason": "long", "n": 16 },
+    { "input": "",                  "ok": false, "reason": "empty", "n": 0 },
+    { "input": "call me maybe",     "ok": false, "reason": "empty", "n": 0 }
+  ],
+  "dob": [
+    { "input": "March 12, 1985", "ok": true,  "year": 1985 },
+    { "input": "1900-01-01",     "ok": true,  "year": 1900 },
+    { "input": "2026-12-31",     "ok": true,  "year": 2026 },
+    { "input": "12/31/1899",     "ok": false, "reason": "too_early", "year": 1899 },
+    { "input": "January 1, 2027","ok": false, "reason": "too_late", "year": 2027 },
+    { "input": "June 5",         "ok": false, "reason": "no_year" },
+    { "input": "",               "ok": false, "reason": "empty" }
+  ],
+  "household_size": [
+    { "input": "4",         "ok": true,  "n": 4 },
+    { "input": "8 or more", "ok": true,  "n": 8 },
+    { "input": "12",        "ok": true,  "n": 8 },
+    { "input": "0",         "ok": false, "reason": "too_small" },
+    { "input": "just me",   "ok": false, "reason": "no_number" },
+    { "input": "",          "ok": false, "reason": "empty" }
+  ],
+  "income": [
+    { "input": "$2,000",   "ok": true,  "amt": 2000 },
+    { "input": "$0",       "ok": true,  "amt": 0 },
+    { "input": "2500.50",  "ok": true,  "amt": 2500.5 },
+    { "input": "no income","ok": false, "reason": "no_number" },
+    { "input": "",         "ok": false, "reason": "empty" }
+  ],
+  "split_unit": [
+    { "input": "171 E 2nd St #6D, Manhattan",                "base": "171 E 2nd St, Manhattan",        "unit": "#6D" },
+    { "input": "171 East 2nd Street apartment 6D, Manhattan","base": "171 East 2nd Street, Manhattan", "unit": "Apartment 6D" },
+    { "input": "22 Reade St Apt 3, Manhattan",               "base": "22 Reade St, Manhattan",         "unit": "Apt 3" },
+    { "input": "100 Floor Ave",                              "base": "100 Floor Ave",                  "unit": "" },
+    { "input": "350 5th Avenue, Manhattan",                  "base": "350 5th Avenue, Manhattan",      "unit": "" }
+  ],
+  "with_unit": [
+    { "full": "171 EAST 2 STREET, Manhattan, NY 10009", "unit": "#6D", "output": "171 EAST 2 STREET #6D, Manhattan, NY 10009" },
+    { "full": "171 EAST 2 STREET, Manhattan, NY 10009", "unit": "",    "output": "171 EAST 2 STREET, Manhattan, NY 10009" },
+    { "full": "171 EAST 2 STREET",                      "unit": "Apt 3", "output": "171 EAST 2 STREET Apt 3" }
+  ]
+}
