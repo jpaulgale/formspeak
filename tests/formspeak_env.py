@@ -27,8 +27,14 @@ PROMPT_JS = HERE.parent / "public" / "js" / "prompt.js"
 SERVE_BASE = "http://localhost:8000"
 
 FIELD_KEYS = [
-    "first_name", "last_name", "address", "date_of_birth", "phone",
-    "household_size", "household_income", "preferred_language",
+    "first_name",
+    "last_name",
+    "address",
+    "date_of_birth",
+    "phone",
+    "household_size",
+    "household_income",
+    "preferred_language",
 ]
 
 # (key, label, question) — mirrors FIELDS in public/js/config.js; used by resume_context().
@@ -39,10 +45,12 @@ FIELD_META = [
     ("date_of_birth", "Date of birth", "What's your date of birth?"),
     ("phone", "Phone number", "What's your phone number?"),
     ("household_size", "Household size", "How many people are in your household?"),
-    ("household_income", "Monthly household income",
-     "About how much does your household earn each month, before taxes?"),
-    ("preferred_language", "Preferred language",
-     "What language would you like to get notices in?"),
+    (
+        "household_income",
+        "Monthly household income",
+        "About how much does your household earn each month, before taxes?",
+    ),
+    ("preferred_language", "Preferred language", "What language would you like to get notices in?"),
 ]
 
 # Test sessions announce themselves with this prefix; log.js / serve.py set
@@ -50,7 +58,7 @@ FIELD_META = [
 TEST_SESSION_PREFIX = "test-"
 
 
-def field_filled(form: "VirtualForm", key: str) -> bool:
+def field_filled(form: VirtualForm, key: str) -> bool:
     """Port of isFilled(): value present AND its deterministic gate passes."""
     v = form.values.get(key)
     if not v:
@@ -68,7 +76,7 @@ def field_filled(form: "VirtualForm", key: str) -> bool:
     return True
 
 
-def resume_context(form: "VirtualForm") -> str:
+def resume_context(form: VirtualForm) -> str:
     """Port of resumeContext() — the preamble the app appends to the system
     instruction when reconnecting after a dropped session."""
     filled = [(k, label, q) for k, label, q in FIELD_META if field_filled(form, k)]
@@ -80,8 +88,8 @@ def resume_context(form: "VirtualForm") -> str:
         return (
             "\n\n--- RESUMING AN IN-PROGRESS SESSION ---\n"
             "The user already filled in EVERY field in an earlier session and the values are still on screen:\n"
-            + lines +
-            "\nDo NOT greet them as if starting fresh and do NOT re-ask any field. In one short sentence, "
+            + lines
+            + "\nDo NOT greet them as if starting fresh and do NOT re-ask any field. In one short sentence, "
             'welcome them back, then read back all the values and ask "Is everything correct?" so you can submit.'
         )
     _, label, q = unfilled[0]
@@ -89,10 +97,13 @@ def resume_context(form: "VirtualForm") -> str:
         "\n\n--- RESUMING AN IN-PROGRESS SESSION ---\n"
         "The user already filled in these fields in an earlier session and the values are still on screen — "
         "treat them as already captured and confirmed unless the user asks to change one:\n"
-        + lines +
-        "\nDo NOT greet them as if starting fresh and do NOT re-ask any of the fields above. In one short sentence, "
+        + lines
+        + "\nDo NOT greet them as if starting fresh and do NOT re-ask any of the fields above. In one short sentence, "
         "welcome them back, then pick up exactly where they left off by asking for the next field: "
-        + label + ' ("' + q + '").'
+        + label
+        + ' ("'
+        + q
+        + '").'
     )
 
 
@@ -100,23 +111,28 @@ async def ensure_serve(http):
     """serve.py must be up (geosearch + telemetry). Spawn it if it isn't.
     Returns the spawned process (terminate when done) or None if already up."""
     import asyncio
+
     import aiohttp
+
     try:
         async with http.get(SERVE_BASE + "/", timeout=aiohttp.ClientTimeout(total=2)):
             return None
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     print("⏳ serve.py not running — spawning it…")
     proc = await asyncio.create_subprocess_exec(
-        "uv", "run", str(HERE.parent / "serve.py"),
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        "uv",
+        "run",
+        str(HERE.parent / "serve.py"),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     for _ in range(30):
         await asyncio.sleep(0.5)
         try:
             async with http.get(SERVE_BASE + "/", timeout=aiohttp.ClientTimeout(total=2)):
                 return proc
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     proc.terminate()
     raise RuntimeError("could not start serve.py")
@@ -147,50 +163,53 @@ def system_instruction() -> str:
 
 def tool_declarations() -> list[dict]:
     """Same function declarations as public/js/prompt.js's TOOLS (plain-dict form)."""
-    return [{
-        "function_declarations": [
-            {
-                "name": "set_field",
-                "description": (
-                    "Set or correct one field on the form. Call this the instant you "
-                    "understand a value, and again whenever the user corrects it."
-                ),
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "field": {
-                            "type": "STRING",
-                            "enum": FIELD_KEYS + ["feedback"],
-                            "description": "Which field to fill. 'feedback' is the optional demo-feedback field.",
+    return [
+        {
+            "function_declarations": [
+                {
+                    "name": "set_field",
+                    "description": (
+                        "Set or correct one field on the form. Call this the instant you "
+                        "understand a value, and again whenever the user corrects it."
+                    ),
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "field": {
+                                "type": "STRING",
+                                "enum": FIELD_KEYS + ["feedback"],
+                                "description": "Which field to fill. 'feedback' is the optional demo-feedback field.",
+                            },
+                            "value": {
+                                "type": "STRING",
+                                "description": (
+                                    "The normalized value to display in that field. For 'address', this MUST "
+                                    "be a New York City address in one of the five boroughs (Manhattan, "
+                                    "Brooklyn, Queens, the Bronx, Staten Island) — never accept or set an "
+                                    "address outside NYC. Include any apartment/unit/suite/floor the user "
+                                    "gave (e.g. '171 E 2nd St #6D, Manhattan') — keep it in the value; it is "
+                                    "preserved automatically."
+                                ),
+                            },
                         },
-                        "value": {
-                            "type": "STRING",
-                            "description": (
-                                "The normalized value to display in that field. For 'address', this MUST "
-                                "be a New York City address in one of the five boroughs (Manhattan, "
-                                "Brooklyn, Queens, the Bronx, Staten Island) — never accept or set an "
-                                "address outside NYC. Include any apartment/unit/suite/floor the user "
-                                "gave (e.g. '171 E 2nd St #6D, Manhattan') — keep it in the value; it is "
-                                "preserved automatically."
-                            ),
-                        },
+                        "required": ["field", "value"],
                     },
-                    "required": ["field", "value"],
                 },
-            },
-            {
-                "name": "submit_form",
-                "description": "Submit the completed form. ONLY call after the user has verbally confirmed every value is correct.",
-                "parameters": {"type": "OBJECT", "properties": {}},
-            },
-        ]
-    }]
+                {
+                    "name": "submit_form",
+                    "description": "Submit the completed form. ONLY call after the user has verbally confirmed every value is correct.",
+                    "parameters": {"type": "OBJECT", "properties": {}},
+                },
+            ]
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Validators — ports of public/js/validators.js (keep in lockstep with the app;
 # tests/unit + tests/js run the same fixture cases against both sides)
 # ---------------------------------------------------------------------------
+
 
 def phone_digits(v: str) -> str:
     return re.sub(r"\D", "", v or "")
@@ -264,7 +283,9 @@ UNIT_KW = (
     "lot|spc|space|trlr|trailer|hngr|hangar|slip|pier|penthouse|ph|no"
 )
 UNIT_RE = re.compile(
-    r"[,\s]+(?:#\s*([A-Za-z0-9][A-Za-z0-9-]*)|(" + UNIT_KW + r")\.?\s*#?\s*([A-Za-z0-9][A-Za-z0-9-]*))(?=$|[,\s])",
+    r"[,\s]+(?:#\s*([A-Za-z0-9][A-Za-z0-9-]*)|("
+    + UNIT_KW
+    + r")\.?\s*#?\s*([A-Za-z0-9][A-Za-z0-9-]*))(?=$|[,\s])",
     re.IGNORECASE,
 )
 
@@ -276,7 +297,7 @@ def split_unit(value: str) -> tuple[str, str]:
         return v, ""
     if m.group(2) and not (re.search(r"\d", m.group(3)) or len(m.group(3)) <= 2):
         return v, ""
-    base = (v[: m.start()] + " " + v[m.end():])
+    base = v[: m.start()] + " " + v[m.end() :]
     base = re.sub(r"\s*,\s*,\s*", ", ", base)
     base = re.sub(r"\s{2,}", " ", base)
     base = re.sub(r"\s+,", ",", base)
@@ -299,6 +320,7 @@ def with_unit(full: str, unit: str) -> str:
 # Virtual form — replicates dispatchTool() responses byte-for-byte
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class VirtualForm:
     """Headless stand-in for the browser UI: holds field state and produces the
@@ -306,7 +328,7 @@ class VirtualForm:
 
     geosearch: object  # async callable: (text) -> dict (the /api/geosearch JSON)
     values: dict = field(default_factory=dict)
-    addr_status: str = "none"      # none | checking | ok
+    addr_status: str = "none"  # none | checking | ok
     addr_unit: str = ""
     addr_choices: list = field(default_factory=list)
     submitted: bool = False
@@ -401,16 +423,23 @@ class VirtualForm:
             if v.get("address") and self.addr_status != "ok":
                 problems.append("the address is not confirmed (it needs a valid NYC city/borough)")
             if v.get("phone") and not phone_info(v["phone"])["ok"]:
-                problems.append("the phone number is not confirmed (10 digits, or a country code with +)")
+                problems.append(
+                    "the phone number is not confirmed (10 digits, or a country code with +)"
+                )
             if v.get("date_of_birth") and not dob_info(v["date_of_birth"])["ok"]:
-                problems.append("the date of birth is not confirmed (the year must be between 1900 and 2026)")
+                problems.append(
+                    "the date of birth is not confirmed (the year must be between 1900 and 2026)"
+                )
             if v.get("household_size") and not hh_size_info(v["household_size"])["ok"]:
                 problems.append("the household size is not confirmed (1 to 8 or more people)")
             if v.get("household_income") and not income_info(v["household_income"])["ok"]:
-                problems.append("the monthly household income is not confirmed (it needs a dollar amount)")
+                problems.append(
+                    "the monthly household income is not confirmed (it needs a dollar amount)"
+                )
             if problems:
                 return (
-                    "Cannot submit yet: " + "; ".join(problems)
+                    "Cannot submit yet: "
+                    + "; ".join(problems)
                     + ". Fix each with set_field and re-confirm with the user before calling submit_form again."
                 )
             return "not all fields are filled yet"
@@ -450,12 +479,14 @@ class VirtualForm:
             self.values["address"] = full
             if j.get("degraded"):
                 return (
-                    "Address accepted as: " + full
+                    "Address accepted as: "
+                    + full
                     + " (the address lookup is temporarily unavailable, so it wasn't independently verified). "
                     + "Read this address back to the user, INCLUDING the borough/city, and ask them to confirm it."
                 )
             return (
-                "Address confirmed by NYC geosearch as: " + full
+                "Address confirmed by NYC geosearch as: "
+                + full
                 + ". Read this exact full address back to the user, INCLUDING the borough/city, and ask them to confirm it."
             )
         self.addr_status = "none"
@@ -473,9 +504,12 @@ class VirtualForm:
                 else "I couldn't pin that address down exactly, so here are the closest matches."
             )
             return (
-                split + " The options are now shown on screen as lettered buttons: " + opts
+                split
+                + " The options are now shown on screen as lettered buttons: "
+                + opts
                 + ". Read them out briefly and ask the user to pick — they can tap a button or just say the letter ("
-                + letters + "). When they choose, call set_field for the address with that option's full address. "
+                + letters
+                + "). When they choose, call set_field for the address with that option's full address. "
                 + "If none of them is right, ask them to repeat the street number, street, and borough. Do not move on until the address is confirmed."
             )
         return (

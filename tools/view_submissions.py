@@ -14,6 +14,7 @@ Reads via the already-authenticated `wrangler` CLI — no API token needed
 
 The browser never touches this; it's a local admin view of demo data.
 """
+
 import argparse
 import json
 import sys
@@ -21,8 +22,15 @@ import sys
 import d1
 
 COLS = [
-    "id", "created_at", "first_name", "last_name", "address",
-    "date_of_birth", "household_size", "household_income", "feedback",
+    "id",
+    "created_at",
+    "first_name",
+    "last_name",
+    "address",
+    "date_of_birth",
+    "household_size",
+    "household_income",
+    "feedback",
 ]
 
 
@@ -42,9 +50,7 @@ def main() -> None:
     args = ap.parse_args()
 
     where = "WHERE TRIM(feedback) <> ''" if args.feedback else ""
-    rows = query(
-        f"SELECT * FROM submissions {where} ORDER BY created_at DESC LIMIT {args.limit};"
-    )
+    rows = query(f"SELECT * FROM submissions {where} ORDER BY created_at DESC LIMIT {args.limit};")
 
     if args.json:
         print(json.dumps(rows, indent=2))

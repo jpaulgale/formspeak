@@ -17,6 +17,7 @@ after the first run the dashboard opens instantly from disk and only fetches
 events NEWER than the cached high-water mark (events.id is append-only). Pass
 --fresh to discard the snapshot and re-pull everything.
 """
+
 import json
 import subprocess
 import sys
@@ -101,7 +102,8 @@ def sessions() -> list[dict]:
     # Also hide test/QA sessions (is_test — eval-harness runs, ?test=1 demos); their
     # detail pages stay reachable by session id.
     rows = [
-        s for s in _CACHE["sessions_by_id"].values()
+        s
+        for s in _CACHE["sessions_by_id"].values()
         if (s.get("event_count") or 0) > 1 and not s.get("is_test")
     ]
     return rows[:500]  # already sorted by last_seen DESC at fetch time
@@ -112,7 +114,6 @@ def session_detail(sid: str) -> dict:
     return {"session": sess, "events": _CACHE["events_by_id"].get(sid, [])}
 
 
-
 def delete_sessions(ids: list[str]) -> int:
     """Delete sessions + their event streams from remote D1 and the local cache.
     Deliberately does NOT touch `submissions` — those are the captured form
@@ -121,7 +122,7 @@ def delete_sessions(ids: list[str]) -> int:
     if not ids:
         return 0
     id_list = ", ".join(sql_str(s) for s in ids)
-    with _REFRESH_LOCK:   # don't race a refresh() writing the same cache
+    with _REFRESH_LOCK:  # don't race a refresh() writing the same cache
         query(
             f"DELETE FROM events WHERE session_id IN ({id_list});",
             f"DELETE FROM sessions WHERE session_id IN ({id_list});",
@@ -131,8 +132,6 @@ def delete_sessions(ids: list[str]) -> int:
             _CACHE["events_by_id"].pop(sid, None)
         save_cache_file()
     return len(ids)
-
-
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -153,7 +152,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/" or path == "/index.html":
                 return self._send(200, INDEX_HTML, "text/html; charset=utf-8")
             if path == "/api/sessions":
-                return self._send(200, json.dumps({"sessions": sessions(), "refreshing": _REFRESHING}))
+                return self._send(
+                    200, json.dumps({"sessions": sessions(), "refreshing": _REFRESHING})
+                )
             if path == "/api/refresh":
                 refresh()
                 return self._send(200, json.dumps({"sessions": sessions(), "refreshing": False}))
@@ -161,7 +162,7 @@ class Handler(BaseHTTPRequestHandler):
                 sid = path.rsplit("/", 1)[-1]
                 return self._send(200, json.dumps(session_detail(sid)))
             self._send(404, json.dumps({"error": "not found"}))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self._send(500, json.dumps({"error": str(e)}))
 
     def do_POST(self):
@@ -171,17 +172,21 @@ class Handler(BaseHTTPRequestHandler):
                 n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n) or b"{}")
                 deleted = delete_sessions(body.get("session_ids") or [])
-                return self._send(200, json.dumps(
-                    {"deleted": deleted, "sessions": sessions(), "refreshing": _REFRESHING}))
+                return self._send(
+                    200,
+                    json.dumps(
+                        {"deleted": deleted, "sessions": sessions(), "refreshing": _REFRESHING}
+                    ),
+                )
             self._send(404, json.dumps({"error": "not found"}))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self._send(500, json.dumps({"error": str(e)}))
 
 
 def _refresh_in_background() -> None:
     try:
         refresh()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"background refresh failed (serving cached snapshot): {e}", file=sys.stderr)
 
 
@@ -195,7 +200,7 @@ def main() -> None:
     else:
         try:
             refresh()  # first run: one full pull; fail fast if wrangler/auth is broken
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             sys.exit(f"Couldn't read D1 via wrangler:\n{e}")
     # Bind all interfaces so the dashboard is reachable over Tailscale, not just
     # localhost. (127.0.0.1 is invisible to the tailnet.)
@@ -204,12 +209,14 @@ def main() -> None:
     print(f"FormSpeak telemetry dashboard → {url}  (Ctrl-C to stop)")
     # If Tailscale is up, surface the tailnet URL so it can be opened from any device.
     try:
-        ts_ip = subprocess.run(
-            ["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=3
-        ).stdout.strip().splitlines()
+        ts_ip = (
+            subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=3)
+            .stdout.strip()
+            .splitlines()
+        )
         if ts_ip:
             print(f"  via Tailscale → http://{ts_ip[0]}:{PORT}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

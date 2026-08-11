@@ -40,18 +40,23 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
-from formspeak_env import (  # noqa: E402
-    SERVE_BASE, TEST_SESSION_PREFIX, VirtualForm, resume_context,
-    system_instruction, tool_declarations,
+from formspeak_env import (
+    SERVE_BASE,
+    TEST_SESSION_PREFIX,
+    VirtualForm,
+    resume_context,
+    system_instruction,
+    tool_declarations,
 )
-from scenarios import SCENARIOS  # noqa: E402
-from serve import load_api_key  # noqa: E402
+from scenarios import SCENARIOS
+
+from serve import load_api_key
 
 BACKEND = "gemini-live"
-MODEL = "gemini-3.1-flash-live-preview"   # keep in lockstep with public/js/config.js
+MODEL = "gemini-3.1-flash-live-preview"  # keep in lockstep with public/js/config.js
 VOICE = "Aoede"
 RATE = 16_000
-CHUNK_MS = 128                             # realtime pacing chunk
+CHUNK_MS = 128  # realtime pacing chunk
 TURN_TIMEOUT_S = 60
 RESULTS_DIR = HERE / "results" / BACKEND
 AUDIO_DIR = HERE / "audio"
@@ -68,19 +73,22 @@ async def ensure_serve(http: aiohttp.ClientSession):
     try:
         async with http.get(SERVE_BASE + "/", timeout=aiohttp.ClientTimeout(total=2)):
             return None
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     print("⏳ serve.py not running — spawning it…")
     proc = await asyncio.create_subprocess_exec(
-        "uv", "run", str(HERE.parent / "serve.py"),
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        "uv",
+        "run",
+        str(HERE.parent / "serve.py"),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     for _ in range(30):
         await asyncio.sleep(0.5)
         try:
             async with http.get(SERVE_BASE + "/", timeout=aiohttp.ClientTimeout(total=2)):
                 return proc
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     proc.terminate()
     raise RuntimeError("could not start serve.py")
@@ -99,7 +107,7 @@ class TurnRecorder:
         self.t_first_audio: float | None = None
 
     def snapshot(self, say: str) -> dict:
-        ms = lambda t: round((t - self.t_end_audio) * 1000) if t else None  # noqa: E731
+        ms = lambda t: round((t - self.t_end_audio) * 1000) if t else None
         for c in self.tool_calls:
             if "t_abs" in c:
                 c["t_ms"] = ms(c.pop("t_abs"))
@@ -127,7 +135,7 @@ class SessionReader:
     def __init__(self, session, form: VirtualForm):
         self.session = session
         self.form = form
-        self.rec = TurnRecorder()          # active recorder (swapped per turn)
+        self.rec = TurnRecorder()  # active recorder (swapped per turn)
         self.turn_done = asyncio.Event()
         self.task: asyncio.Task | None = None
 
@@ -139,7 +147,7 @@ class SessionReader:
             self.task.cancel()
             try:
                 await self.task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
 
     async def next_turn(self, rec: TurnRecorder):
@@ -151,13 +159,14 @@ class SessionReader:
         pump died (ws closed) instead of sitting out the whole timeout."""
         ev = asyncio.create_task(self.turn_done.wait())
         done, _ = await asyncio.wait(
-            {ev, self.task}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            {ev, self.task}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+        )
         if ev not in done:
             ev.cancel()
         if self.task in done:
-            self.task.result()          # raises the pump's exception
+            self.task.result()  # raises the pump's exception
         if not done:
-            raise asyncio.TimeoutError
+            raise TimeoutError
 
     async def _pump(self):
         while True:
@@ -175,11 +184,18 @@ class SessionReader:
                         # still streaming, before t_end_audio is known — the
                         # snapshot converts to relative ms afterwards.
                         rec.tool_calls.append(
-                            {"name": fc.name, "args": dict(fc.args or {}), "result": result,
-                             "t_abs": now}
+                            {
+                                "name": fc.name,
+                                "args": dict(fc.args or {}),
+                                "result": result,
+                                "t_abs": now,
+                            }
                         )
-                        responses.append(types.FunctionResponse(
-                            id=fc.id, name=fc.name, response={"result": result}))
+                        responses.append(
+                            types.FunctionResponse(
+                                id=fc.id, name=fc.name, response={"result": result}
+                            )
+                        )
                     await self.session.send_tool_response(function_responses=responses)
                     sent_tool_response = True
                     continue
@@ -208,13 +224,15 @@ async def send_clip(session, pcm: bytes) -> float:
     step = RATE * 2 * CHUNK_MS // 1000
     for i in range(0, len(pcm), step):
         await session.send_realtime_input(
-            audio=types.Blob(data=pcm[i:i + step], mime_type=f"audio/pcm;rate={RATE}"))
+            audio=types.Blob(data=pcm[i : i + step], mime_type=f"audio/pcm;rate={RATE}")
+        )
         await asyncio.sleep(CHUNK_MS / 1000)
     t_speech_end = time.monotonic()
     silence = b"\x00" * step
     for _ in range(1200 // CHUNK_MS):
         await session.send_realtime_input(
-            audio=types.Blob(data=silence, mime_type=f"audio/pcm;rate={RATE}"))
+            audio=types.Blob(data=silence, mime_type=f"audio/pcm;rate={RATE}")
+        )
         await asyncio.sleep(CHUNK_MS / 1000)
     return t_speech_end
 
@@ -236,9 +254,12 @@ async def run_scenario(client: genai.Client, http: aiohttp.ClientSession, sc: di
             temperature=0.3,
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOICE))),
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOICE)
+                )
+            ),
             system_instruction=types.Content(
-                parts=[types.Part(text=system_instruction() + resume_context(form))]),
+                parts=[types.Part(text=system_instruction() + resume_context(form))]
+            ),
             tools=tool_declarations(),
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -259,7 +280,7 @@ async def run_scenario(client: genai.Client, http: aiohttp.ClientSession, sc: di
     error: str | None = None
     disconnects: list[dict] = []
     next_i = 0
-    stuck = 0   # consecutive failures on the same turn
+    stuck = 0  # consecutive failures on the same turn
     while next_i < len(sc["turns"]):
         try:
             async with client.aio.live.connect(model=MODEL, config=make_config()) as session:
@@ -281,32 +302,42 @@ async def run_scenario(client: genai.Client, http: aiohttp.ClientSession, sc: di
                         clip = next((AUDIO_DIR / sc["id"]).glob(f"{i:02d}_*.wav"))
                         pcm = read_wav(clip)
                         rec = TurnRecorder()
-                        await asyncio.sleep(0.5)   # a beat between turns, like a human
+                        await asyncio.sleep(0.5)  # a beat between turns, like a human
                         await reader.next_turn(rec)
                         rec.t_end_audio = await send_clip(session, pcm)
                         try:
                             await reader.wait_turn(TURN_TIMEOUT_S)
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             rec.asst_text += " [TURN TIMEOUT]"
                         turns_out.append(rec.snapshot(turn["say"]))
-                        print(f"   #{i} heard={turns_out[-1]['heard'][:48]!r} "
-                              f"tools={[c['name'] + ':' + str(c['args'].get('field', '')) for c in rec.tool_calls]}")
+                        print(
+                            f"   #{i} heard={turns_out[-1]['heard'][:48]!r} "
+                            f"tools={[c['name'] + ':' + str(c['args'].get('field', '')) for c in rec.tool_calls]}"
+                        )
                         next_i += 1
                         stuck = 0
-                        if reader.task.done():   # pump died (ws closed) — surface it
+                        if reader.task.done():  # pump died (ws closed) — surface it
                             reader.task.result()
                 finally:
                     await reader.stop()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             stuck += 1
             disconnects.append({"before_turn": next_i, "error": repr(e)})
-            print(f"   ⚠️  disconnect before turn {next_i}: {e!r} — reconnecting with resume context…")
-            if stuck >= 2:   # same turn failed twice → skip it, keep the scenario going
-                turns_out.append({
-                    "say": sc["turns"][next_i]["say"], "heard": "",
-                    "assistant": "[SKIPPED after repeated disconnects]", "tool_calls": [],
-                    "audio_out_s": 0, "ttft_tool_ms": None, "ttfa_ms": None,
-                })
+            print(
+                f"   ⚠️  disconnect before turn {next_i}: {e!r} — reconnecting with resume context…"
+            )
+            if stuck >= 2:  # same turn failed twice → skip it, keep the scenario going
+                turns_out.append(
+                    {
+                        "say": sc["turns"][next_i]["say"],
+                        "heard": "",
+                        "assistant": "[SKIPPED after repeated disconnects]",
+                        "tool_calls": [],
+                        "audio_out_s": 0,
+                        "ttft_tool_ms": None,
+                        "ttfa_ms": None,
+                    }
+                )
                 next_i += 1
                 stuck = 0
             if len(disconnects) >= 6:
@@ -315,35 +346,66 @@ async def run_scenario(client: genai.Client, http: aiohttp.ClientSession, sc: di
             await asyncio.sleep(3)
 
     result = {
-        "backend": BACKEND, "model": MODEL, "scenario": sc["id"],
-        "session_id": session_id, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "turns": turns_out, "disconnects": disconnects,
-        "final_values": form.values, "addr_status": form.addr_status,
-        "submitted": form.submitted, "tool_log": form.tool_log,
+        "backend": BACKEND,
+        "model": MODEL,
+        "scenario": sc["id"],
+        "session_id": session_id,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "turns": turns_out,
+        "disconnects": disconnects,
+        "final_values": form.values,
+        "addr_status": form.addr_status,
+        "submitted": form.submitted,
+        "tool_log": form.tool_log,
     }
     if error:
         result["error"] = error
         result["completed_turns"] = len(turns_out)
 
     # Telemetry → D1 via serve.py, flagged is_test by the session-id prefix.
-    events = [{"seq": 0, "type": "session_start", "ts": int(time.time() * 1000),
-               "data": {"eval": True, "backend": BACKEND, "scenario": sc["id"]}}]
+    events = [
+        {
+            "seq": 0,
+            "type": "session_start",
+            "ts": int(time.time() * 1000),
+            "data": {"eval": True, "backend": BACKEND, "scenario": sc["id"]},
+        }
+    ]
     seq = 1
     for t in turns_out:
         for c in t["tool_calls"]:
-            events.append({"seq": seq, "type": "tool_call", "ts": int(time.time() * 1000),
-                           "data": {"name": c["name"], "args": c["args"], "result": c["result"]}})
+            events.append(
+                {
+                    "seq": seq,
+                    "type": "tool_call",
+                    "ts": int(time.time() * 1000),
+                    "data": {"name": c["name"], "args": c["args"], "result": c["result"]},
+                }
+            )
             seq += 1
-        events.append({"seq": seq, "type": "turn", "ts": int(time.time() * 1000),
-                       "data": {"user": t["heard"], "asst": t["assistant"]}})
+        events.append(
+            {
+                "seq": seq,
+                "type": "turn",
+                "ts": int(time.time() * 1000),
+                "data": {"user": t["heard"], "asst": t["assistant"]},
+            }
+        )
         seq += 1
-    events.append({"seq": seq, "type": "session_end", "ts": int(time.time() * 1000),
-                   "data": {"values": form.values, "submitted": form.submitted}})
+    events.append(
+        {
+            "seq": seq,
+            "type": "session_end",
+            "ts": int(time.time() * 1000),
+            "data": {"values": form.values, "submitted": form.submitted},
+        }
+    )
     try:
-        async with http.post(SERVE_BASE + "/api/log",
-                             json={"sessionId": session_id, "events": events}) as r:
+        async with http.post(
+            SERVE_BASE + "/api/log", json={"sessionId": session_id, "events": events}
+        ) as r:
             await r.json()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"   ⚠️  telemetry post failed (non-fatal): {e}")
 
     return result
@@ -354,7 +416,7 @@ async def main() -> None:
     ap.add_argument("--scenario", help="run just one scenario id")
     args = ap.parse_args()
 
-    api_key, src = load_api_key()
+    api_key, _src = load_api_key()
     if not api_key:
         sys.exit("No GEMINI_API_KEY found.")
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
@@ -367,7 +429,7 @@ async def main() -> None:
             for sc in todo:
                 print(f"\n▶️  {sc['id']}  ({len(sc['turns'])} turns)")
                 result = None
-                for attempt in (1, 2):   # preview models flake — one clean retry
+                for attempt in (1, 2):  # preview models flake — one clean retry
                     result = await run_scenario(client, http, sc)
                     if "error" not in result:
                         break

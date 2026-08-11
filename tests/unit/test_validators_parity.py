@@ -15,7 +15,7 @@ from pathlib import Path
 TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TESTS_DIR))
 
-from formspeak_env import (  # noqa: E402
+from formspeak_env import (
     dob_info,
     hh_size_info,
     income_info,

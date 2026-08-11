@@ -18,6 +18,7 @@ submit) and where they run into trouble.
 The browser never touches this; it's a local admin view of demo telemetry.
 (Shared plumbing in d1.py; the database name comes from wrangler.jsonc.)
 """
+
 import argparse
 import json
 import sys
@@ -116,7 +117,9 @@ def main() -> None:
     ap.add_argument("session_id", nargs="?", help="show full event timeline for one session")
     ap.add_argument("--limit", type=int, default=30, help="max sessions (default 30)")
     ap.add_argument("--abandoned", action="store_true", help="only sessions that never submitted")
-    ap.add_argument("--test", action="store_true", help="only test/QA sessions (default hides them)")
+    ap.add_argument(
+        "--test", action="store_true", help="only test/QA sessions (default hides them)"
+    )
     ap.add_argument("--closes", action="store_true", help="ws_close code breakdown")
     ap.add_argument("--json", action="store_true", help="print raw JSON")
     args = ap.parse_args()
@@ -148,11 +151,26 @@ def main() -> None:
     for r in rows:
         r["ok"] = "✓" if r.pop("submitted", 0) else "·"
         r["session"] = r.pop("session_id", "")[:8]
-    table(rows, ["ok", "session", "event_count", "city", "region", "country", "colo",
-                 "ip_hash", "started_at", "last_seen"])
+    table(
+        rows,
+        [
+            "ok",
+            "session",
+            "event_count",
+            "city",
+            "region",
+            "country",
+            "colo",
+            "ip_hash",
+            "started_at",
+            "last_seen",
+        ],
+    )
     done = sum(1 for r in rows if r["ok"] == "✓")
-    print(f"\n{len(rows)} session(s) — {done} submitted, {len(rows) - done} not. "
-          f"Pass a session id to replay its events.")
+    print(
+        f"\n{len(rows)} session(s) — {done} submitted, {len(rows) - done} not. "
+        f"Pass a session id to replay its events."
+    )
 
 
 if __name__ == "__main__":

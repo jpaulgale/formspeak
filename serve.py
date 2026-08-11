@@ -40,18 +40,24 @@ from google import genai
 HTTP_PORT = 8000
 HERE = Path(__file__).parent
 
+
 def _d1_database_name() -> str:
     """The D1 database name, read from wrangler.jsonc so the deploy config stays
     the single source of truth (jsonc: strip //-comment lines before parsing)."""
     text = (HERE / "wrangler.jsonc").read_text()
-    cfg = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M))
+    cfg = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE))
     return cfg["d1_databases"][0]["database_name"]
 
 
 D1_DB = _d1_database_name()
 SUBMIT_FIELDS = (
-    "first_name", "last_name", "address", "date_of_birth",
-    "household_size", "household_income", "session_id",
+    "first_name",
+    "last_name",
+    "address",
+    "date_of_birth",
+    "household_size",
+    "household_income",
+    "session_id",
 )
 
 # NYC Planning Labs Geosearch (Pelias) — same service ev-storefront uses. It only
@@ -79,10 +85,7 @@ def load_api_key() -> tuple[str | None, str]:
     # 2. local .env, 3. ev-storefront .dev.vars
     candidates = [
         HERE / ".env",
-        HERE.parent.parent
-        / "ev-storefront"
-        / "storefront-updater-airtable-worker"
-        / ".dev.vars",
+        HERE.parent.parent / "ev-storefront" / "storefront-updater-airtable-worker" / ".dev.vars",
     ]
     for path in candidates:
         if path.exists():
@@ -93,32 +96,24 @@ def load_api_key() -> tuple[str | None, str]:
 
 
 API_KEY, API_KEY_SOURCE = load_api_key()
-client = (
-    genai.Client(api_key=API_KEY, http_options={"api_version": "v1alpha"})
-    if API_KEY
-    else None
-)
+client = genai.Client(api_key=API_KEY, http_options={"api_version": "v1alpha"}) if API_KEY else None
 
 
 async def get_ephemeral_token(request: web.Request) -> web.Response:
     if client is None:
-        return web.json_response(
-            {"error": "No GEMINI_API_KEY found on the server."}, status=500
-        )
+        return web.json_response({"error": "No GEMINI_API_KEY found on the server."}, status=500)
     try:
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        now = datetime.datetime.now(tz=datetime.UTC)
         token = client.auth_tokens.create(
             config={
                 "uses": 1,
                 "expire_time": (now + datetime.timedelta(minutes=30)).isoformat(),
-                "new_session_expire_time": (
-                    now + datetime.timedelta(minutes=2)
-                ).isoformat(),
+                "new_session_expire_time": (now + datetime.timedelta(minutes=2)).isoformat(),
                 "http_options": {"api_version": "v1alpha"},
             }
         )
         return web.json_response({"token": token.name})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"⚠️  token mint failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
@@ -136,7 +131,7 @@ async def submit_form(request: web.Request) -> web.Response:
 
     try:
         data = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return web.json_response({"error": "invalid JSON"}, status=400)
 
     vals = [str(data.get(k, "")) for k in SUBMIT_FIELDS]
@@ -174,7 +169,7 @@ async def log_events(request: web.Request) -> web.Response:
 
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return web.json_response({"ok": False, "error": "bad json"})
 
     session_id = str(body.get("sessionId", ""))[:64]
@@ -185,13 +180,19 @@ async def log_events(request: web.Request) -> web.Response:
     # No CF geo locally; hash whatever client IP aiohttp sees.
     ip = request.headers.get("X-Forwarded-For", request.remote or "")
     ip_hash = hashlib.sha256(f"local::{ip}".encode()).hexdigest()[:32] if ip else ""
-    submitted = 1 if any(
-        e.get("type") == "submit_saved"
-        or (e.get("type") == "tool_call"
-            and (e.get("data") or {}).get("name") == "submit_form"
-            and (e.get("data") or {}).get("result") == "submitted")
-        for e in events
-    ) else 0
+    submitted = (
+        1
+        if any(
+            e.get("type") == "submit_saved"
+            or (
+                e.get("type") == "tool_call"
+                and (e.get("data") or {}).get("name") == "submit_form"
+                and (e.get("data") or {}).get("result") == "submitted"
+            )
+            for e in events
+        )
+        else 0
+    )
 
     sid = _sql_str(session_id)
     n = len(events)
@@ -199,11 +200,13 @@ async def log_events(request: web.Request) -> web.Response:
     # a 'test-' session-id prefix so analytics can exclude them (sessions.is_test).
     is_test = 1 if session_id.startswith("test-") else 0
     stmts = [
-        f"INSERT INTO sessions (session_id, ip_hash, event_count, submitted, is_test) "
-        f"VALUES ({sid}, {_sql_str(ip_hash)}, {n}, {submitted}, {is_test}) "
-        f"ON CONFLICT(session_id) DO UPDATE SET last_seen=datetime('now'), "
-        f"event_count=event_count+{n}, submitted=MAX(submitted,{submitted}), "
-        f"is_test=MAX(is_test,{is_test});"
+        (
+            f"INSERT INTO sessions (session_id, ip_hash, event_count, submitted, is_test) "
+            f"VALUES ({sid}, {_sql_str(ip_hash)}, {n}, {submitted}, {is_test}) "
+            f"ON CONFLICT(session_id) DO UPDATE SET last_seen=datetime('now'), "
+            f"event_count=event_count+{n}, submitted=MAX(submitted,{submitted}), "
+            f"is_test=MAX(is_test,{is_test});"
+        )
     ]
     for e in events:
         payload = json.dumps(e.get("data") or {})[:20000]
@@ -211,7 +214,7 @@ async def log_events(request: web.Request) -> web.Response:
         ts = int(e.get("ts") or 0)
         stmts.append(
             f"INSERT INTO events (session_id, seq, type, payload, client_ts) VALUES ("
-            f"{sid}, {seq}, {_sql_str(str(e.get('type',''))[:40])}, "
+            f"{sid}, {seq}, {_sql_str(str(e.get('type', ''))[:40])}, "
             f"{_sql_str(payload)}, {ts});"
         )
 
@@ -263,6 +266,7 @@ def _detect_borough(low: str) -> str:
         if phrase in low:
             return b
     return ""
+
 
 # NOTE: the /v2/search endpoint returns a uniform confidence (~0.8, match_type
 # "fallback") for every candidate, so confidence is useless for disambiguation.
@@ -324,10 +328,12 @@ async def geosearch(request: web.Request) -> web.Response:
     params = {"text": text, "size": "8"}
     try:
         timeout = aiohttp.ClientTimeout(total=8)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(GEOSEARCH_URL, params=params) as resp:
-                data = await resp.json()
-    except Exception as e:  # noqa: BLE001
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(GEOSEARCH_URL, params=params) as resp,
+        ):
+            data = await resp.json()
+    except Exception as e:
         print(f"⚠️  geosearch failed: {e}")
         return web.json_response({"status": "error", "found": False, "error": str(e)}, status=502)
 
@@ -366,8 +372,7 @@ async def geosearch(request: web.Request) -> web.Response:
     # formatting, so an exact string compare is safe), how many distinct boroughs?
     # >1 means the spoken address (e.g. "171 E 2nd St") exists in multiple boroughs.
     same = [
-        c for c in pool
-        if c["housenumber"] == top["housenumber"] and c["street"] == top["street"]
+        c for c in pool if c["housenumber"] == top["housenumber"] and c["street"] == top["street"]
     ]
     boroughs = sorted({c["borough"] for c in same if c["borough"]})
 
@@ -405,7 +410,7 @@ async def serve_static(request: web.Request) -> web.Response:
     if path == "tests/manifest.json":
         file_path = HERE / "tests" / "audio" / "manifest.json"
     elif path.startswith("tests/audio/"):
-        file_path = HERE / "tests" / "audio" / path[len("tests/audio/"):]
+        file_path = HERE / "tests" / "audio" / path[len("tests/audio/") :]
     else:
         # Static assets live in ./public (the Cloudflare Pages build output dir).
         file_path = HERE / "public" / (path or "index.html")

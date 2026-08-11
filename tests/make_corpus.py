@@ -36,14 +36,15 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
-from scenarios import SCENARIOS  # noqa: E402
-from serve import load_api_key  # noqa: E402  (reuses the app's key resolution)
+from scenarios import SCENARIOS
+
+from serve import load_api_key
 
 TTS_MODEL = "gemini-3.1-flash-tts-preview"
 AUDIO_DIR = HERE / "audio"
 MANIFEST = AUDIO_DIR / "manifest.json"
-TARGET_RATE = 16_000   # what Gemini Live / the app's worklet feeds the models
-TTS_RATE = 24_000      # what Gemini TTS returns
+TARGET_RATE = 16_000  # what Gemini Live / the app's worklet feeds the models
+TTS_RATE = 24_000  # what Gemini TTS returns
 
 STYLE = (
     "Speak as an ordinary person talking to a voice assistant on the phone — "
@@ -90,7 +91,7 @@ def synth(client: genai.Client, text: str, voice: str) -> bytes:
             )
             part = resp.candidates[0].content.parts[0]
             return part.inline_data.data
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             wait = 5 * (attempt + 1)
             print(f"   ⚠️  TTS failed ({e}); retrying in {wait}s…")
             time.sleep(wait)

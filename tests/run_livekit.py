@@ -41,11 +41,15 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
-from formspeak_env import (  # noqa: E402
-    SERVE_BASE, TEST_SESSION_PREFIX, VirtualForm, parse_env_file,
-    system_instruction, tool_declarations,
+from formspeak_env import (
+    SERVE_BASE,
+    TEST_SESSION_PREFIX,
+    VirtualForm,
+    parse_env_file,
+    system_instruction,
+    tool_declarations,
 )
-from scenarios import SCENARIOS  # noqa: E402
+from scenarios import SCENARIOS
 
 DEFAULT_LLM = "google/gemma-4-31b-it"
 DEFAULT_STT = "deepgram/flux-general"
@@ -82,18 +86,25 @@ async def transcribe(stt, pcm: bytes) -> tuple[str, int]:
 
     async def push():
         for i in range(0, len(pcm), step):
-            chunk = pcm[i:i + step]
-            stream.push_frame(rtc.AudioFrame(
-                data=chunk, sample_rate=RATE, num_channels=1,
-                samples_per_channel=len(chunk) // 2))
+            chunk = pcm[i : i + step]
+            stream.push_frame(
+                rtc.AudioFrame(
+                    data=chunk,
+                    sample_rate=RATE,
+                    num_channels=1,
+                    samples_per_channel=len(chunk) // 2,
+                )
+            )
             await asyncio.sleep(0.128)
-        t_speech_end = time.monotonic()   # latency reference: end of SPEECH
+        t_speech_end = time.monotonic()  # latency reference: end of SPEECH
         # trailing silence so endpointing closes the turn
         silence = b"\x00" * step
         for _ in range(10):
-            stream.push_frame(rtc.AudioFrame(
-                data=silence, sample_rate=RATE, num_channels=1,
-                samples_per_channel=step // 2))
+            stream.push_frame(
+                rtc.AudioFrame(
+                    data=silence, sample_rate=RATE, num_channels=1, samples_per_channel=step // 2
+                )
+            )
             await asyncio.sleep(0.128)
         stream.end_input()
         return t_speech_end
@@ -107,7 +118,7 @@ async def transcribe(stt, pcm: bytes) -> tuple[str, int]:
     while True:
         try:
             ev = await asyncio.wait_for(anext(it), 2.0 if push_task.done() else 30.0)
-        except (asyncio.TimeoutError, StopAsyncIteration):
+        except (TimeoutError, StopAsyncIteration):
             break
         if ev.type == stt_mod.SpeechEventType.FINAL_TRANSCRIPT and ev.alternatives:
             finals.append(ev.alternatives[0].text)
@@ -128,23 +139,34 @@ def build_agent(form: VirtualForm):
     tools = []
     for decl in decls:
         params = json.loads(
-            json.dumps(decl["parameters"]).replace('"OBJECT"', '"object"').replace('"STRING"', '"string"'))
+            json.dumps(decl["parameters"])
+            .replace('"OBJECT"', '"object"')
+            .replace('"STRING"', '"string"')
+        )
 
         def make_handler(name):
             async def handler(raw_arguments: dict):  # raw tool: single dict arg
                 return await form.dispatch(name, dict(raw_arguments or {}))
+
             return handler
 
-        tools.append(function_tool(
-            make_handler(decl["name"]),
-            raw_schema={"name": decl["name"], "description": decl["description"],
-                        "parameters": params},
-        ))
+        tools.append(
+            function_tool(
+                make_handler(decl["name"]),
+                raw_schema={
+                    "name": decl["name"],
+                    "description": decl["description"],
+                    "parameters": params,
+                },
+            )
+        )
 
     return Agent(instructions=system_instruction(), tools=tools)
 
 
-async def run_scenario(http: aiohttp.ClientSession, sc: dict, llm_model: str, stt_model: str) -> dict:
+async def run_scenario(
+    http: aiohttp.ClientSession, sc: dict, llm_model: str, stt_model: str
+) -> dict:
     from livekit.agents import AgentSession, inference
 
     async def geosearch(text: str) -> dict:
@@ -161,7 +183,7 @@ async def run_scenario(http: aiohttp.ClientSession, sc: dict, llm_model: str, st
 
     try:
         async with (
-            http_context.open(),   # required to use inference outside a worker
+            http_context.open(),  # required to use inference outside a worker
             inference.STT(model=stt_model, language="en") as stt,
             inference.LLM(model=llm_model) as llm,
             AgentSession(llm=llm) as session,
@@ -177,55 +199,94 @@ async def run_scenario(http: aiohttp.ClientSession, sc: dict, llm_model: str, st
                 t0 = time.monotonic()
                 try:
                     await asyncio.wait_for(
-                        session.run(user_input=heard or "(unintelligible)"), TURN_TIMEOUT_S)
+                        session.run(user_input=heard or "(unintelligible)"), TURN_TIMEOUT_S
+                    )
                     llm_ms = round((time.monotonic() - t0) * 1000)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     llm_ms = None
                 new_calls = [
                     {"name": c["name"], "args": c["args"], "result": c["result"], "t_ms": llm_ms}
                     for c in form.tool_log[calls_before:]
                 ]
-                turns_out.append({
-                    "say": turn["say"], "heard": heard, "assistant": "",
-                    "tool_calls": new_calls, "audio_out_s": 0,
-                    "stt_final_ms": stt_ms,
-                    "ttft_tool_ms": (stt_ms + llm_ms) if llm_ms is not None else None,
-                    "ttfa_ms": None,  # pipeline TTS not exercised — see report note
-                })
-                print(f"   #{i} heard={heard[:48]!r} stt={stt_ms}ms "
-                      f"tools={[c['name'] + ':' + str(c['args'].get('field', '')) for c in new_calls]}")
-    except Exception as e:  # noqa: BLE001
+                turns_out.append(
+                    {
+                        "say": turn["say"],
+                        "heard": heard,
+                        "assistant": "",
+                        "tool_calls": new_calls,
+                        "audio_out_s": 0,
+                        "stt_final_ms": stt_ms,
+                        "ttft_tool_ms": (stt_ms + llm_ms) if llm_ms is not None else None,
+                        "ttfa_ms": None,  # pipeline TTS not exercised — see report note
+                    }
+                )
+                print(
+                    f"   #{i} heard={heard[:48]!r} stt={stt_ms}ms "
+                    f"tools={[c['name'] + ':' + str(c['args'].get('field', '')) for c in new_calls]}"
+                )
+    except Exception as e:
         error = repr(e)
         print(f"   ⚠️  session error after {len(turns_out)} turn(s): {error}")
 
     result = {
-        "backend": backend, "model": f"{stt_model} + {llm_model}", "scenario": sc["id"],
-        "session_id": session_id, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "turns": turns_out, "final_values": form.values, "addr_status": form.addr_status,
-        "submitted": form.submitted, "tool_log": form.tool_log,
+        "backend": backend,
+        "model": f"{stt_model} + {llm_model}",
+        "scenario": sc["id"],
+        "session_id": session_id,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "turns": turns_out,
+        "final_values": form.values,
+        "addr_status": form.addr_status,
+        "submitted": form.submitted,
+        "tool_log": form.tool_log,
     }
     if error:
         result["error"] = error
         result["completed_turns"] = len(turns_out)
 
-    events = [{"seq": 0, "type": "session_start", "ts": int(time.time() * 1000),
-               "data": {"eval": True, "backend": backend, "scenario": sc["id"]}}]
+    events = [
+        {
+            "seq": 0,
+            "type": "session_start",
+            "ts": int(time.time() * 1000),
+            "data": {"eval": True, "backend": backend, "scenario": sc["id"]},
+        }
+    ]
     seq = 1
     for t in turns_out:
         for c in t["tool_calls"]:
-            events.append({"seq": seq, "type": "tool_call", "ts": int(time.time() * 1000),
-                           "data": {"name": c["name"], "args": c["args"], "result": c["result"]}})
+            events.append(
+                {
+                    "seq": seq,
+                    "type": "tool_call",
+                    "ts": int(time.time() * 1000),
+                    "data": {"name": c["name"], "args": c["args"], "result": c["result"]},
+                }
+            )
             seq += 1
-        events.append({"seq": seq, "type": "turn", "ts": int(time.time() * 1000),
-                       "data": {"user": t["heard"], "asst": ""}})
+        events.append(
+            {
+                "seq": seq,
+                "type": "turn",
+                "ts": int(time.time() * 1000),
+                "data": {"user": t["heard"], "asst": ""},
+            }
+        )
         seq += 1
-    events.append({"seq": seq, "type": "session_end", "ts": int(time.time() * 1000),
-                   "data": {"values": form.values, "submitted": form.submitted}})
+    events.append(
+        {
+            "seq": seq,
+            "type": "session_end",
+            "ts": int(time.time() * 1000),
+            "data": {"values": form.values, "submitted": form.submitted},
+        }
+    )
     try:
-        async with http.post(SERVE_BASE + "/api/log",
-                             json={"sessionId": session_id, "events": events}) as r:
+        async with http.post(
+            SERVE_BASE + "/api/log", json={"sessionId": session_id, "events": events}
+        ) as r:
             await r.json()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"   ⚠️  telemetry post failed (non-fatal): {e}")
     return result
 
@@ -239,9 +300,11 @@ async def main() -> None:
     args = ap.parse_args()
 
     if not load_livekit_env(args.env_file):
-        sys.exit("Missing LIVEKIT_API_KEY / LIVEKIT_API_SECRET.\n"
-                 "Run `lk cloud auth`, then `lk app env -w .env.livekit` in the project root,\n"
-                 "or pass --env-file.")
+        sys.exit(
+            "Missing LIVEKIT_API_KEY / LIVEKIT_API_SECRET.\n"
+            "Run `lk cloud auth`, then `lk app env -w .env.livekit` in the project root,\n"
+            "or pass --env-file."
+        )
 
     backend = f"livekit-{args.llm.split('/')[-1]}"
     results_dir = HERE / "results" / backend
@@ -250,6 +313,7 @@ async def main() -> None:
 
     async with aiohttp.ClientSession() as http:
         from formspeak_env import ensure_serve
+
         spawned = await ensure_serve(http)
         try:
             for sc in todo:

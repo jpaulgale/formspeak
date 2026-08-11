@@ -12,7 +12,7 @@ from pathlib import Path
 TESTS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(TESTS_DIR))
 
-from formspeak_env import FIELD_KEYS, system_instruction, tool_declarations  # noqa: E402
+from formspeak_env import FIELD_KEYS, system_instruction, tool_declarations
 
 
 def test_system_instruction_extracts():

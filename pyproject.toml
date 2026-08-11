@@ -16,9 +16,24 @@ dev = [
 line-length = 100
 extend-exclude = ["public", "functions"]  # JS lives there; ruff is Python-only
 
+[tool.ruff.format]
+# scenarios.py is a data file: one compact dict per conversation turn, written
+# to be scanned side-by-side with the eval report. The formatter would explode
+# each turn across many lines and bury the script it encodes.
+exclude = ["tests/scenarios.py"]
+
 [tool.ruff.lint]
 # Match the codebase's existing style: standard rules plus import hygiene.
 extend-select = ["I"]
+ignore = [
+    # Fail-safe by design: telemetry, notifications, and best-effort probes
+    # deliberately swallow errors so a logging hiccup can never surface inside
+    # someone's voice session (see README "Privacy" / log.js header).
+    "S110", "S112", "BLE001",
+    # subprocess.run without check=True: every call site inspects returncode
+    # itself and surfaces a friendlier error than CalledProcessError would.
+    "PLW1510",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]

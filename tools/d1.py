@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def database_name() -> str:
     """The D1 database name from wrangler.jsonc (jsonc: strip //-comment lines)."""
     text = (REPO_ROOT / "wrangler.jsonc").read_text()
-    cfg = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M))
+    cfg = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE))
     return cfg["d1_databases"][0]["database_name"]
 
 
@@ -41,8 +41,21 @@ def query(*sqls: str) -> list[list[dict]]:
     """
     try:
         out = subprocess.run(
-            ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", " ".join(sqls)],
-            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60,
+            [
+                "npx",
+                "wrangler",
+                "d1",
+                "execute",
+                DB,
+                "--remote",
+                "--json",
+                "--command",
+                " ".join(sqls),
+            ],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
