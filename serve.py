@@ -7,9 +7,9 @@
 # ]
 # ///
 """
-Ramble Form — local token server.
+FormSpeak — local dev server.
 
-Serves index.html and mints short-lived *ephemeral tokens* for the Gemini
+Serves the static app and mints short-lived *ephemeral tokens* for the Gemini
 Live API so the browser can open a WebSocket directly to Google without ever
 seeing your real API key.
 
@@ -20,7 +20,7 @@ Run:
 API key resolution (first hit wins):
     1. $GEMINI_API_KEY / $GOOGLE_API_KEY
     2. ./.env                      (GEMINI_API_KEY=...)
-    3. ../../ev-storefront/storefront-updater-airtable-worker/.dev.vars
+    3. ../ev-storefront/storefront-updater-airtable-worker/.dev.vars
 """
 
 import asyncio
@@ -82,10 +82,10 @@ def load_api_key() -> tuple[str | None, str]:
         if os.environ.get(var):
             return os.environ[var], f"${var}"
 
-    # 2. local .env, 3. ev-storefront .dev.vars
+    # 2. local .env, 3. the sibling ev-storefront project's .dev.vars
     candidates = [
         HERE / ".env",
-        HERE.parent.parent / "ev-storefront" / "storefront-updater-airtable-worker" / ".dev.vars",
+        HERE.parent / "ev-storefront" / "storefront-updater-airtable-worker" / ".dev.vars",
     ]
     for path in candidates:
         if path.exists():
@@ -437,7 +437,7 @@ async def main() -> None:
 
     key_state = "✅ loaded" if API_KEY else "❌ MISSING — set GEMINI_API_KEY"
     print(
-        f"\n  Ramble Form  →  http://localhost:{HTTP_PORT}\n"
+        f"\n  FormSpeak  →  http://localhost:{HTTP_PORT}\n"
         f"  API key: {key_state}  (from {API_KEY_SOURCE})\n"
         f"  Ctrl-C to stop.\n"
     )
