@@ -135,8 +135,8 @@ def delete_sessions(ids: list[str]) -> int:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
+    def log_message(self, format: str, *args: object) -> None:
+        pass  # keep the terminal quiet; the dashboard is chatty enough
 
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else body.encode()

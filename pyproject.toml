@@ -10,7 +10,18 @@ dev = [
     "pytest>=8",
     "ruff>=0.8",
     "ty",
+    # Runtime deps of serve.py and the lighter eval runners (which execute in
+    # their own PEP 723 script environments) — present here so ty can resolve
+    # their imports and actually type-check that code.
+    "aiohttp>=3.9",
+    "google-genai>=1.0",
+    "numpy>=1.26",
 ]
+
+[tool.ty.src]
+# run_livekit.py runs in its own PEP 723 environment with livekit-agents,
+# which is too heavy to install just for type resolution.
+exclude = ["tests/run_livekit.py"]
 
 [tool.ruff]
 line-length = 100

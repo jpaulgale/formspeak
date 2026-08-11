@@ -19,8 +19,10 @@ browser would send them.
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).parent
 PROMPT_JS = HERE.parent / "public" / "js" / "prompt.js"
@@ -326,7 +328,7 @@ class VirtualForm:
     """Headless stand-in for the browser UI: holds field state and produces the
     exact tool-response strings public/js/tools.js would send back to the model."""
 
-    geosearch: object  # async callable: (text) -> dict (the /api/geosearch JSON)
+    geosearch: Callable[[str], Awaitable[dict[str, Any]]]  # (text) -> the /api/geosearch JSON
     values: dict = field(default_factory=dict)
     addr_status: str = "none"  # none | checking | ok
     addr_unit: str = ""
@@ -490,7 +492,8 @@ class VirtualForm:
                 + ". Read this exact full address back to the user, INCLUDING the borough/city, and ask them to confirm it."
             )
         self.addr_status = "none"
-        cands = (j.get("candidates") if j else None) or []
+        raw_cands = j.get("candidates") if j else None
+        cands: list[dict[str, Any]] = raw_cands if isinstance(raw_cands, list) else []
         self.addr_choices = [
             {"letter": "ABCD"[i], "full": c["full"], "borough": c.get("borough", "")}
             for i, c in enumerate(cands[:4])

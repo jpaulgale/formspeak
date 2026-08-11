@@ -89,7 +89,12 @@ def synth(client: genai.Client, text: str, voice: str) -> bytes:
                     ),
                 ),
             )
-            part = resp.candidates[0].content.parts[0]
+            # Optional-chain the response shape explicitly — any missing piece
+            # (safety block, empty candidate) falls through to the retry loop.
+            cand = (resp.candidates or [None])[0]
+            part = cand.content.parts[0] if cand and cand.content and cand.content.parts else None
+            if part is None or part.inline_data is None or part.inline_data.data is None:
+                raise ValueError(f"no audio in TTS response: {resp!r:.200}")
             return part.inline_data.data
         except Exception as e:
             wait = 5 * (attempt + 1)

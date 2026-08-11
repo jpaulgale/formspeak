@@ -157,6 +157,7 @@ class SessionReader:
     async def wait_turn(self, timeout: float):
         """Wait for the model to finish this turn; re-raise immediately if the
         pump died (ws closed) instead of sitting out the whole timeout."""
+        assert self.task is not None, "start() must run before wait_turn()"
         ev = asyncio.create_task(self.turn_done.wait())
         done, _ = await asyncio.wait(
             {ev, self.task}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
@@ -316,7 +317,7 @@ async def run_scenario(client: genai.Client, http: aiohttp.ClientSession, sc: di
                         )
                         next_i += 1
                         stuck = 0
-                        if reader.task.done():  # pump died (ws closed) — surface it
+                        if reader.task and reader.task.done():  # pump died (ws closed) — surface it
                             reader.task.result()
                 finally:
                     await reader.stop()

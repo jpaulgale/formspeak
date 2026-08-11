@@ -11,9 +11,13 @@ actually say them); `expect`/`forbid` match against tool calls recorded during
 that turn. All regexes are case-insensitive.
 """
 
+from typing import Any
+
 VOICES = ["Kore", "Puck", "Charon", "Aoede", "Leda", "Fenrir", "Orus", "Zephyr"]
 
-SCENARIOS = [
+# Heterogeneous by design (turns carry optional expect/forbid/final checks);
+# Any keeps type checkers honest about that instead of inferring bogus unions.
+SCENARIOS: list[dict[str, Any]] = [
     {
         "id": "happy_path",
         "voice": "Kore",
