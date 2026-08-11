@@ -1,0 +1,9 @@
+{
+  "name": "formspeak",
+  "private": true,
+  "type": "module",
+  "description": "Voice-fillable NYC benefits form — static app + Cloudflare Pages Functions",
+  "scripts": {
+    "test": "node --test tests/js/"
+  }
+}
