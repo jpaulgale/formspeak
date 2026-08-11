@@ -1,47 +1,161 @@
-# Ramble Form 🎙️
+# FormSpeak 🎙️
 
-Talk-to-fill identity form, à la Todoist **Ramble** — but instead of capturing
-tasks, the user rambles their **first name, last name, address, date of birth,
-and SSN** and the form fills in **live as they speak**. They can correct
-themselves at any time ("no, it's B as in boy") and watch the field update in
-real time. When all five fields are filled, the assistant reads everything back
-and only submits after the user **says "yes"** out loud.
+**A form that fills itself out as you speak to it.**
 
-Built on the **Gemini Live API** (`gemini-3.1-flash-live-preview`): raw 16 kHz
-PCM audio streams straight to the model, which does speech recognition + intent
-+ tool-calling in a single pass — no separate transcribe step. The model drives
-the UI by calling two tools:
+A SNAP (food assistance) benefits form you complete by talking — in any order,
+in any language, correcting yourself as you go. Not a chatbot: a real form with
+real fields you can see, tap, and type into. The voice agent helps with the
+form; it never becomes the form.
 
-- `set_field(field, value)` — fills/corrects a field the instant it's understood
-- `submit_form()` — only after the user verbally confirms; the confirmed record
-  is then POSTed to `/api/submit` and written to **Cloudflare D1**.
+**[Try it live →](https://formspeak.pages.dev)** · **[Case study →](#case-study)**
+· **[Voice-backend evaluation →](tests/REPORT.md)**
 
-## Persistence (Cloudflare D1)
+Built in a few hours at the NYC State Capacity AI Hackathon (hosted by Civic
+Roundtable and CUNY PIT Lab), then hardened over the following weeks against
+real sessions from strangers on the internet.
 
-Confirmed submissions are saved to the D1 database **`ramble-form-hackathon`**
-(`46c788e1-0c46-4a54-ac2d-5b344a5304d6`), table `submissions`. `serve.py` writes
-via the already-authenticated `wrangler` CLI (no extra API token needed).
+---
 
-```bash
-# inspect what's been captured
-npx wrangler d1 execute ramble-form-hackathon --remote \
-  --command "SELECT * FROM submissions ORDER BY created_at DESC;"
-```
+## Why
 
-## Noisy rooms: the noise gate
+Filling out forms is a pain no matter who you are. For many people they're a
+serious obstacle to crucial services like housing, healthcare, or SNAP. Forms
+either don't get filled out at all, or the work falls to overwhelmed helpers —
+children translating for their parents at the doctor's office, caseworkers
+piecing together a situation before another back-to-back appointment.
 
-If background noise (fans, AC, distant chatter) is disrupting capture, the app
-already handles it two ways, no setup required:
+Voice models now handle casually-delivered information remarkably well. If
+you're impatient, not especially tech-savvy, or more comfortable in another
+language, a conversation should be able to become a completed form.
 
-1. **Auto-calibrated client noise gate** — the first ~1s after the mic starts
-   measures your room's noise floor; quieter frames are then never streamed to
-   the model (with a short tail so word-endings aren't clipped). Tune via the
-   `GATE_*` constants near the top of the `<script>` in `index.html`
-   (`GATE_MARGIN` is the main knob — raise it if noise still leaks through).
-2. **Gemini VAD** set to `startOfSpeechSensitivity: LOW` so faint onsets don't
-   trigger a turn.
+## The design rule
 
-## Run
+**The form stays a form.** That single constraint produced three input modes
+that coexist on one screen:
+
+- **Dictation** — say a value, watch the field fill the moment it's understood
+- **Conversation** — ask questions, get clarification, correct yourself, wander
+- **Manual editing** — tap any field and just type
+
+Each mode covers the others' weaknesses. Most of the engineering is about
+keeping the three in sync.
+
+## How it works
+
+Raw 16 kHz PCM audio streams from the browser straight to the **Gemini Live
+API** (`gemini-3.1-flash-live-preview`), which does speech recognition, intent,
+and tool-calling in a single pass — no separate transcription step to lag
+behind. The model drives the UI through exactly two tools:
+
+- `set_field(field, value)` — fills or corrects a field the instant a value is
+  understood. The system prompt **forbids the model from waiting**: no "got it,
+  what's next?" ceremony. The live-updating field *is* the feedback loop.
+- `submit_form()` — allowed only after all eight values are read back aloud and
+  the user verbally confirms.
+
+Eight fields: first name, last name, NYC address, date of birth, phone,
+household size, monthly household income, preferred notice language.
+
+## Making it trustworthy
+
+A demo that fills a form is easy. A demo you'd let fill a *government benefits*
+form has to earn it, because the signature failure mode of language models is
+confident, plausible invention.
+
+**Addresses are verified, not transcribed.** Every spoken address is checked
+against [NYC Planning Labs' official geocoder](https://geosearch.planninglabs.nyc).
+The borough is never invented — it comes from the match. When an address exists
+in multiple boroughs (spoken addresses often do), up to four candidates appear
+as lettered buttons while the agent reads them aloud: *"Is that A, Manhattan,
+or B, Brooklyn?"* Answer by voice or by tap. The ear is bad at comparing
+similar options; the eye is great at it.
+
+**Deterministic systems handle truth; the model handles language.** The
+geocoder would happily autocomplete `"125"` into the very real-sounding
+"125 Beach 125 Street" — an address the user never said. So the agent must
+collect a house number *and* a street name before it can look anything up. Same
+discipline for phone numbers: real sessions caught the model "helpfully"
+zero-padding partial numbers out to ten digits, so inventing digits is now
+explicitly forbidden and every value passes through validation that talks back.
+
+**Dependencies fail gracefully and honestly.** When the geocoder is
+unreachable, the form doesn't block — it soft-accepts what the user said, flags
+the record as unverified in telemetry, and moves on. A tool for people who find
+forms hard should never strand them because a third-party API had a bad minute.
+
+**Nothing submits without consent.** All eight values are read back aloud, and
+only an explicit verbal "yes" triggers submission.
+
+## Accessibility
+
+Accessibility is the premise of the project, not a retrofit:
+
+- **The form is a good form with the sound off** — proper autocomplete
+  semantics for assistive tech, live regions for captions, and copy that says
+  "tap" on phones and "click" on desktops
+- **Language is fluid** — nine notice languages (English, Spanish, Chinese,
+  Bengali, Russian, Haitian Creole, Korean, Arabic, Yiddish, plus Other). Start
+  speaking Spanish or Russian or Haitian Creole and the agent switches and
+  carries the whole conversation there
+- **The demo teaches by example** — a "try saying" prompt models the behaviors
+  people don't expect to work: answering out of order, correcting a spelling
+  after the fact
+- **It works on real phones** — barge-in (interrupting the agent mid-sentence)
+  is the least glamorous work here and mattered most. On phones playing through
+  the loudspeaker, browser echo cancellation often fails to cancel the app's own
+  output; the model hears itself and interrupts itself into an endless stutter.
+  A small acoustic echo suppressor measures speaker-to-mic bleed, calibrates
+  during the opening greeting, and requires real interruptions to sustain above
+  that floor for ~190 ms. A cough doesn't cut the agent off; a person saying
+  "wait—" does.
+
+> Not independently audited against WCAG 2.1 AA / Section 508. The work above is
+> described as built, not as certified.
+
+## Privacy
+
+- **The SSN field was removed entirely.** An early version collected one; a
+  public demo shouldn't invite real Social Security numbers, full stop.
+- **The API key never reaches the browser.** Each session mints a single-use
+  ephemeral token; the browser opens its WebSocket to Google with that.
+- **Per-IP rate limits** stop anyone burning the quota in a loop — and they
+  **degrade open**, because a broken rate limiter should never take down the
+  thing it protects.
+- **Telemetry is fail-safe** in the same spirit: a logging hiccup can never
+  surface as an error inside someone's voice session.
+- Submitted values are still sent to a third-party model provider. Use fake
+  data. Production use would need consent flows, retention controls, and an
+  audit trail.
+
+## Testing
+
+`tests/` is a voice-backend evaluation harness, not a unit-test suite:
+
+- `scenarios.py` — scripted conversations covering the happy path plus the edge
+  cases the system prompt guards against: spelling corrections, ambiguous NYC
+  addresses, apartment preservation, partial phone digits, out-of-range DOB,
+  household phrasing, unlisted languages, premature submit
+- `make_corpus.py` — renders every turn to 16 kHz WAV via TTS, cached by content hash
+- `formspeak_env.py` — a "virtual browser" that extracts the **live** system
+  instruction from `public/index.html` at runtime, ports its validators, and
+  reproduces the real tool-response strings. Address checks hit the real
+  geocoder endpoint.
+- `score.py` — grades per-turn expectations, final form state, submit
+  guardrails, and latency
+
+**[tests/REPORT.md](tests/REPORT.md)** is the writeup: a head-to-head of Gemini
+Live vs. `gpt-realtime-2.1` vs. a LiveKit STT→Gemma pipeline, with identical
+prompt, tools, and validation across all three legs — accuracy, guardrail pass
+rates, latency, cost per session, and data posture.
+
+## Observability
+
+Every session streams its events — transcripts, tool calls, connection drops —
+to a small database. `dashboard.py` replays any session as a chat transcript:
+user and assistant bubbles, every tool call with its outcome, problems flagged
+in red. Nearly every post-launch fix traces back to a replayed session.
+
+## Run it
 
 ```bash
 uv run serve.py
@@ -50,39 +164,69 @@ open http://localhost:8000
 
 Tap **"Tap to start"**, allow the mic, and start talking.
 
-> **Mic + browser:** open over `http://localhost` (mic is allowed on localhost).
-> Chrome works best for the AudioWorklet PCM pipeline.
+> Open over `http://localhost` — microphone access is allowed there without
+> HTTPS. Chrome works best for the AudioWorklet PCM pipeline.
 
-## API key
+`serve.py` looks for `GEMINI_API_KEY` in `$GEMINI_API_KEY`, then `$GOOGLE_API_KEY`,
+then `./.env`.
 
-`serve.py` looks for `GEMINI_API_KEY` in this order:
+### Persistence
 
-1. `$GEMINI_API_KEY` / `$GOOGLE_API_KEY`
-2. `./.env`  (`GEMINI_API_KEY=...`)
-3. `../../ev-storefront/storefront-updater-airtable-worker/.dev.vars` *(auto-reused)*
+Confirmed submissions are written to Cloudflare D1 (table `submissions`).
+To run your own copy, create a database and put its ID in `wrangler.jsonc`:
 
-The key never reaches the browser — `serve.py` mints a single-use **ephemeral
-token** per session, and the browser opens the WebSocket to Google directly with
-that token.
-
-## Files
-
-```
-ramble-form/
-  serve.py     # uv PEP-723 script: serves index.html + mints ephemeral tokens
-  index.html   # everything else — Typeform-style UI, Live client, audio worklets (inline)
+```bash
+npx wrangler d1 create <your-database-name>
+npx wrangler d1 execute <your-database-name> --remote --file schema.sql
 ```
 
-## UX notes
+## Layout
 
-- **Typeform-style:** one big question at a time, mobile-first, with a large
-  "talk to answer" mic button (tap to pause/resume) and a live audio-level ring.
-- **Live correction visibility:** the review rail at the bottom always shows all
-  five fields; whichever one changes **flashes** so errors are caught instantly.
-- **SSN** is masked (`•••-••-1234`) with a per-field show/hide toggle.
+```
+public/index.html   the whole app — UI, Live client, audio worklets (~2,000 lines)
+public/styles.css
+functions/api/      token minting, geosearch proxy, submit, telemetry
+serve.py            local dev server + ephemeral token minting
+dashboard.py        local session-replay dashboard
+tests/              voice-backend eval harness (see REPORT.md)
+schema.sql          D1 schema
+migrations/
+```
 
-## Demo data only
+No framework, no build step — about 3,000 lines total. For an experiment like
+this that's a feature: every decision described above is readable in one sitting.
 
-This streams PII (incl. SSN) to the Gemini Live API for the demo. Use **fake
-data**. For production you'd add masking-at-source, consent, retention controls,
-and an audit trail.
+## How this was built
+
+Pair-programmed with AI coding agents, start to finish. That's worth stating
+plainly, because it's the honest description and because the interesting part
+isn't the typing.
+
+What I actually did: chose the problem, made the product decisions that make it
+work (the form stays a form; the model may not wait; deterministic systems
+handle truth; remove the SSN field), found the failure modes by replaying real
+sessions, and designed the evaluation that chose the voice backend.
+
+The pattern I'd bet on for this whole category of tool: **an agent as a
+collaborator inside a conventional interface, not a replacement for it.** The
+model does what it's uniquely good at — understanding messy, multilingual,
+out-of-order human speech. Deterministic systems handle truth. The interface
+keeps all state visible and editable. The human always has the final say.
+
+## Case study
+
+A longer writeup of the design decisions, failure modes, and what a small demo
+taught me about how voice agents and traditional interfaces should share a
+screen — including the subtle bug where a user types a correction and the agent,
+unaware, keeps asking for information that's already on screen. (If an AI agent
+and a person share an interface, every change either of them makes has to be
+visible to both — otherwise you don't have collaboration, you have two users
+fighting over one document.)
+
+## Credits
+
+Thanks to Tal Roded, Henry Grunzweig, and Jeremie Ponak for organizing the
+State Capacity AI Hackathon, and to Civic Roundtable and CUNY PIT Lab for
+hosting.
+
+Built by [Paul Gale](https://paulgale.dev).

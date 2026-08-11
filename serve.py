@@ -43,7 +43,7 @@ HERE = Path(__file__).parent
 # D1 (created via `wrangler d1 create ramble-form-hackathon`)
 D1_DB = "ramble-form-hackathon"
 SUBMIT_FIELDS = (
-    "first_name", "last_name", "address", "date_of_birth", "ssn",
+    "first_name", "last_name", "address", "date_of_birth",
     "household_size", "household_income", "session_id",
 )
 
