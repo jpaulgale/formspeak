@@ -40,8 +40,15 @@ from google import genai
 HTTP_PORT = 8000
 HERE = Path(__file__).parent
 
-# D1 (created via `wrangler d1 create ramble-form-hackathon`)
-D1_DB = "ramble-form-hackathon"
+def _d1_database_name() -> str:
+    """The D1 database name, read from wrangler.jsonc so the deploy config stays
+    the single source of truth (jsonc: strip //-comment lines before parsing)."""
+    text = (HERE / "wrangler.jsonc").read_text()
+    cfg = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M))
+    return cfg["d1_databases"][0]["database_name"]
+
+
+D1_DB = _d1_database_name()
 SUBMIT_FIELDS = (
     "first_name", "last_name", "address", "date_of_birth",
     "household_size", "household_income", "session_id",

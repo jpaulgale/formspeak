@@ -4,21 +4,22 @@
 # ///
 """View FormSpeak submissions stored in the Cloudflare D1 database.
 
-Reads via the already-authenticated `wrangler` CLI — no API token needed.
+Reads via the already-authenticated `wrangler` CLI — no API token needed
+(shared plumbing in d1.py; the database name comes from wrangler.jsonc).
 
-    uv run view_submissions.py                 # latest 20
-    uv run view_submissions.py --limit 100      # more rows
-    uv run view_submissions.py --feedback         # only rows that left feedback
-    uv run view_submissions.py --json            # raw JSON for piping
+    uv run tools/view_submissions.py                 # latest 20
+    uv run tools/view_submissions.py --limit 100      # more rows
+    uv run tools/view_submissions.py --feedback         # only rows that left feedback
+    uv run tools/view_submissions.py --json            # raw JSON for piping
 
 The browser never touches this; it's a local admin view of demo data.
 """
 import argparse
 import json
-import subprocess
 import sys
 
-DB = "ramble-form-hackathon"
+import d1
+
 COLS = [
     "id", "created_at", "first_name", "last_name", "address",
     "date_of_birth", "household_size", "household_income", "feedback",
@@ -27,16 +28,10 @@ COLS = [
 
 def query(sql: str) -> list[dict]:
     """Run a read-only SQL statement against the remote D1 and return rows."""
-    out = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", sql],
-        capture_output=True, text=True,
-    )
-    if out.returncode != 0:
-        sys.exit(f"wrangler failed:\n{out.stderr or out.stdout}")
     try:
-        return json.loads(out.stdout)[0]["results"]
-    except (json.JSONDecodeError, KeyError, IndexError):
-        sys.exit(f"unexpected wrangler output:\n{out.stdout}")
+        return d1.query_one(sql)
+    except RuntimeError as e:
+        sys.exit(f"wrangler failed:\n{e}")
 
 
 def main() -> None:

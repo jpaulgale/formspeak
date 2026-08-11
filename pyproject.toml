@@ -1,0 +1,24 @@
+[project]
+name = "formspeak"
+version = "0.1.0"
+description = "Voice-fillable NYC benefits form — dev tooling environment (the app itself is static + Pages Functions; runnable scripts carry PEP 723 inline metadata)"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+    "ty",
+]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["public", "functions"]  # JS lives there; ruff is Python-only
+
+[tool.ruff.lint]
+# Match the codebase's existing style: standard rules plus import hygiene.
+extend-select = ["I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]

@@ -8,40 +8,29 @@ Reads via the already-authenticated `wrangler` CLI — no API token needed.
 This is how you see how people use the form (including the ones who never
 submit) and where they run into trouble.
 
-    uv run view_sessions.py                    # latest 30 sessions, one line each
-    uv run view_sessions.py --limit 100         # more sessions
-    uv run view_sessions.py --abandoned         # only sessions that never submitted
-    uv run view_sessions.py --closes            # ws_close code breakdown (where it breaks)
-    uv run view_sessions.py <session_id>        # full event timeline for one session (replay)
-    uv run view_sessions.py --json              # raw JSON for piping
+    uv run tools/view_sessions.py                    # latest 30 sessions, one line each
+    uv run tools/view_sessions.py --limit 100         # more sessions
+    uv run tools/view_sessions.py --abandoned         # only sessions that never submitted
+    uv run tools/view_sessions.py --closes            # ws_close code breakdown (where it breaks)
+    uv run tools/view_sessions.py <session_id>        # full event timeline for one session (replay)
+    uv run tools/view_sessions.py --json              # raw JSON for piping
 
 The browser never touches this; it's a local admin view of demo telemetry.
+(Shared plumbing in d1.py; the database name comes from wrangler.jsonc.)
 """
 import argparse
 import json
-import subprocess
 import sys
 
-DB = "ramble-form-hackathon"
+import d1
 
 
 def query(sql: str) -> list[dict]:
     """Run a read-only SQL statement against the remote D1 and return rows."""
-    out = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", DB, "--remote", "--json", "--command", sql],
-        capture_output=True, text=True,
-    )
-    if out.returncode != 0:
-        sys.exit(f"wrangler failed:\n{out.stderr or out.stdout}")
     try:
-        return json.loads(out.stdout)[0]["results"]
-    except (json.JSONDecodeError, KeyError, IndexError):
-        sys.exit(f"unexpected wrangler output:\n{out.stdout}")
-
-
-def esc(s: str) -> str:
-    """Escape single quotes for inline SQL (ids are UUIDs, but be safe)."""
-    return str(s).replace("'", "''")
+        return d1.query_one(sql)
+    except RuntimeError as e:
+        sys.exit(f"wrangler failed:\n{e}")
 
 
 def table(rows: list[dict], cols: list[str]) -> None:
@@ -82,7 +71,7 @@ def summarize_event(ev: dict) -> str:
 
 def show_session(session_id: str, as_json: bool) -> None:
     # Accept a prefix — the list view shows a truncated id, so match on LIKE 'id%'.
-    like = f"'{esc(session_id)}%'"
+    like = d1.sql_str(session_id + "%")
     sess = query(f"SELECT * FROM sessions WHERE session_id LIKE {like};")
     events = query(
         f"SELECT seq, type, payload, client_ts, created_at FROM events "

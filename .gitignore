@@ -10,3 +10,4 @@ __pycache__/
 tests/audio/
 tests/results/
 .log.sql
+.venv/
