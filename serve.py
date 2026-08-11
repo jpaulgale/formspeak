@@ -31,6 +31,7 @@ import mimetypes
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 import aiohttp
@@ -123,12 +124,36 @@ def _sql_str(v: str) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-async def submit_form(request: web.Request) -> web.Response:
-    """Persist a confirmed submission to D1 via the (already authenticated) wrangler CLI."""
+async def _d1_execute(sql: str) -> tuple[int, str]:
+    """Run SQL against the remote D1 via the (already authenticated) wrangler CLI.
+
+    The SQL goes through a file (avoids shell-quoting issues with PII like
+    O'Brien) — and each call writes its OWN private temp file. A fixed filename
+    here let concurrent telemetry batches clobber each other: request B
+    overwrote the file mid-upload of request A ("File contents did not upload
+    successfully") and A's cleanup unlinked it before B's wrangler read it
+    ("Unable to read SQL text file").
+    """
     wrangler = shutil.which("wrangler") or shutil.which("npx")
     if wrangler is None:
-        return web.json_response({"error": "wrangler/npx not found on PATH"}, status=500)
+        return 127, "wrangler/npx not found on PATH"
+    fd, path = tempfile.mkstemp(prefix="formspeak-", suffix=".sql")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(sql)
+        cmd = ["wrangler"] if wrangler.endswith("wrangler") else ["npx", "--yes", "wrangler"]
+        cmd += ["d1", "execute", D1_DB, "--remote", "--yes", f"--file={path}"]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        out, _ = await proc.communicate()
+        return proc.returncode or 0, (out or b"").decode(errors="replace")
+    finally:
+        Path(path).unlink(missing_ok=True)
 
+
+async def submit_form(request: web.Request) -> web.Response:
+    """Persist a confirmed submission to D1 via the wrangler CLI."""
     try:
         data = await request.json()
     except Exception:
@@ -138,21 +163,9 @@ async def submit_form(request: web.Request) -> web.Response:
     cols = ", ".join(SUBMIT_FIELDS)
     sql = f"INSERT INTO submissions ({cols}) VALUES ({', '.join(_sql_str(v) for v in vals)});"
 
-    # Write SQL to a temp file (avoids shell-quoting issues with PII like O'Brien).
-    sql_file = HERE / ".submit.sql"
-    sql_file.write_text(sql)
-
-    cmd = ["wrangler"] if wrangler.endswith("wrangler") else ["npx", "--yes", "wrangler"]
-    cmd += ["d1", "execute", D1_DB, "--remote", "--yes", f"--file={sql_file}"]
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-    )
-    out, _ = await proc.communicate()
-    sql_file.unlink(missing_ok=True)
-
-    if proc.returncode != 0:
-        tail = (out or b"").decode(errors="replace")[-500:]
+    code, out = await _d1_execute(sql)
+    if code != 0:
+        tail = out[-500:]
         print(f"⚠️  D1 write failed:\n{tail}")
         return web.json_response({"error": "D1 write failed", "detail": tail}, status=500)
 
@@ -163,10 +176,6 @@ async def submit_form(request: web.Request) -> web.Response:
 async def log_events(request: web.Request) -> web.Response:
     """Persist a batch of client telemetry events to D1 (local-dev mirror of
     functions/api/log.js). Fail-safe: always 200 so logging never breaks the UI."""
-    wrangler = shutil.which("wrangler") or shutil.which("npx")
-    if wrangler is None:
-        return web.json_response({"ok": False, "error": "wrangler/npx not found"})
-
     try:
         body = await request.json()
     except Exception:
@@ -218,17 +227,9 @@ async def log_events(request: web.Request) -> web.Response:
             f"{_sql_str(payload)}, {ts});"
         )
 
-    sql_file = HERE / ".log.sql"
-    sql_file.write_text("\n".join(stmts))
-    cmd = ["wrangler"] if wrangler.endswith("wrangler") else ["npx", "--yes", "wrangler"]
-    cmd += ["d1", "execute", D1_DB, "--remote", "--yes", f"--file={sql_file}"]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-    )
-    out, _ = await proc.communicate()
-    sql_file.unlink(missing_ok=True)
-    if proc.returncode != 0:
-        tail = (out or b"").decode(errors="replace")[-300:]
+    code, out = await _d1_execute("\n".join(stmts))
+    if code != 0:
+        tail = out[-300:]
         print(f"⚠️  telemetry write failed:\n{tail}")
         return web.json_response({"ok": False})
     print(f"📊 logged {n} event(s) for session {session_id[:8]}")
