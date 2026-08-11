@@ -1,0 +1,40 @@
+# Every gate here also runs locally with the same commands — CI is just the
+# public receipt. Deploys are deliberately NOT here: this project ships via an
+# explicit `npx wrangler pages deploy` (see README), never on push.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax-check every shipped JS module
+        run: |
+          for f in public/js/*.js public/worklets/*.js functions/api/*.js; do
+            node --check "$f"
+          done
+
+      - name: Unit tests against the shipped validators (Node)
+        run: npm test
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Python unit tests (validator parity + prompt contract)
+        run: uv run pytest
+
+      - name: Lint + formatting
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        run: uv run ty check
