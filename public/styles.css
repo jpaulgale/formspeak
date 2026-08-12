@@ -89,16 +89,16 @@ body {
    carries the notch safe-area so "FormSpeak" never tucks under it. Scrolls away. */
 .topbar { display: flex; align-items: center; justify-content: space-between; color: var(--ink);
   padding-top: max(20px, env(safe-area-inset-top)); }
-.brand { font-family: var(--font-display); font-weight: 600; letter-spacing: -.01em; font-size: 18px; display: flex; align-items: center; gap: 9px; }
-.brand-mark { width: 22px; height: 22px; flex: none; display: block; }
+.brand { font-family: var(--font-display); font-weight: 600; letter-spacing: -.01em; font-size: 23px; display: flex; align-items: center; gap: 11px; }
+.brand-mark { width: 29px; height: 29px; flex: none; display: block; }
 /* Part of the lockup, so: squared corners like the rest of the system (never a
    pill), and the SAME blue as the mark — the wordmark separates them, so there's
    nothing to disambiguate, and a third blue would just dilute a two-colour system. */
 .demo-badge {
-  font-family: var(--font-body); font-size: 10px; font-weight: 700;
+  font-family: var(--font-body); font-size: 12px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .08em;
   color: #fff; background: var(--accent);
-  border-radius: 2px; padding: 3px 6px; margin-left: -1px;
+  border-radius: 2px; padding: 4px 8px; margin-left: -1px;
 }
 
 /* ---------- non-affiliation line ---------- */
