@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>FormSpeak — talk to fill out your NYC benefits form</title>
+<title>FormSpeak — a voice form demo (not an official NYC service)</title>
 
 <!-- favicon (brand blue square + mic) -->
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -11,12 +11,18 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <meta name="theme-color" content="#103FEF" />
 
+<!-- Canonical + non-affiliation are stated in the metadata, not just the page body:
+     link scanners and preview crawlers judge on the <head> and the above-the-fold
+     render, and a benefits-shaped form that only discloses "demo" in its footer
+     reads as a phishing page to them. -->
+<link rel="canonical" href="https://formspeak.paulgale.dev/" />
+
 <!-- social / iMessage link preview -->
-<meta name="description" content="Click the mic and ramble. This voice-first NYC benefits form fills in live as you speak — correct yourself anytime, confirm by voice. A State Capacity AI Hackathon demo by Paul Gale." />
+<meta name="description" content="DEMO — an independent portfolio project by Paul Gale, not affiliated with or endorsed by the City of New York. Click the mic and ramble: this voice-first sample benefits form fills in live as you speak. Built at the State Capacity AI Hackathon." />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="https://formspeak.pages.dev/" />
-<meta property="og:title" content="FormSpeak" />
-<meta property="og:description" content="Click the mic and ramble. This voice-first NYC benefits form fills in live as you speak — correct yourself anytime, confirm by voice. A State Capacity AI Hackathon demo by Paul Gale." />
+<meta property="og:url" content="https://formspeak.paulgale.dev/" />
+<meta property="og:title" content="FormSpeak — a voice form demo (unofficial)" />
+<meta property="og:description" content="DEMO — an independent portfolio project by Paul Gale, not affiliated with or endorsed by the City of New York. Click the mic and ramble: this voice-first sample benefits form fills in live as you speak. Built at the State Capacity AI Hackathon." />
 <!-- No og:image on purpose → compact link preview using the favicon (blue square),
      not a large portrait thumbnail. -->
 <meta name="twitter:card" content="summary" />
@@ -37,7 +43,11 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=optional" />
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@500,600&display=optional" />
 </noscript>
-<link rel="stylesheet" href="styles.css" />
+<!-- Versioned: index.html is served max-age=0 but styles.css is max-age=14400, so a
+     returning visitor inside that 4h window pairs NEW html with OLD css — which is
+     exactly how the brand mark rendered at zero size after the header rework. Bump
+     the ?v= whenever styles.css changes shape. -->
+<link rel="stylesheet" href="styles.css?v=2026-08-12b" />
 
 <!-- The app is native ES modules — no framework, no build step. Preload the whole
      module graph so the browser fetches every file in parallel with the first one,
@@ -66,8 +76,24 @@
   <div class="sr-only" id="srAnnounce" aria-live="polite" role="status" aria-atomic="true"></div>
 
   <!-- top -->
+  <!-- The DEMO tag sits inside .brand, right after the wordmark, so it reads as
+       part of the lockup rather than as a floating right-aligned chip — and the
+       disclosure lands in the first thing painted. The mark is the favicon
+       inlined (same geometry as favicon.svg) so the header carries the real
+       icon instead of a bare blue square. -->
   <header class="topbar">
-    <div class="brand"><span class="dot"></span> FormSpeak</div>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <rect width="32" height="32" rx="7" fill="#103FEF"/>
+        <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 7a2.4 2.4 0 0 0-2.4 2.4v6.4a2.4 2.4 0 0 0 4.8 0V9.4A2.4 2.4 0 0 0 16 7z"/>
+          <path d="M21.6 14.8v1.6a5.6 5.6 0 0 1-11.2 0v-1.6"/>
+          <line x1="16" y1="22" x2="16" y2="25.4"/>
+        </g>
+      </svg>
+      FormSpeak
+      <span class="demo-badge">Demo</span>
+    </div>
   </header>
 
   <!-- Slim overlay bar (mobile): slides in once the big mic/card scrolls off, so
@@ -87,12 +113,20 @@
   </div>
 
   <main class="appmain">
+  <!-- Non-affiliation line. Has to be ABOVE the fold: this app asks for name,
+       address, DOB, phone and income under NYC-styled chrome — the exact shape of
+       a benefits-phishing page — and a footer credit discloses that to nobody who
+       judges on first paint. Kept to one quiet line because the Demo tag in the
+       lockup already carries the loud half of the signal. -->
+  <p class="demo-note">
+    Not affiliated with the City of New York — please don't enter real personal details.
+  </p>
   <!-- FORM — shown immediately; microphone sits at the top of the form -->
   <div id="formScreen" style="flex:1;display:flex;flex-direction:column;gap:14px;">
     <!-- "answer out of order" is a no-break unit (.nb): it stays inline when the
          line fits and drops to its own line as a whole when it doesn't, so it never
          breaks mid-phrase into an orphaned "order." -->
-    <h1 class="hero">Just <span id="heroVerb">click</span> the mic and talk.<br><span class="hl">Ramble, correct yourself, <span class="nb">answer out of order.</span></span><br>We'll fill out your NYC benefits form.</h1>
+    <h1 class="hero">Just <span id="heroVerb">click</span> the mic and talk.<br><span class="hl">Ramble, correct yourself, <span class="nb">answer out of order.</span></span><br>We'll fill out a sample NYC benefits form.</h1>
     <!-- mic + transcript + focused question: on mobile this block sticks to the
          top of the viewport so it follows the user down toward the lower fields -->
     <div class="stickytop" id="stickyTop">
@@ -136,7 +170,7 @@
   <div class="screen hidden" id="doneScreen">
     <div class="success-ic" aria-hidden="true"></div>
     <h1 id="doneHeading" tabindex="-1">All set!</h1>
-    <p>Your details were captured and confirmed by voice.</p>
+    <p>Your details were captured and confirmed by voice. This is a demo — nothing was sent to the City of New York and no benefits application was created.</p>
     <div class="final-card" id="finalCard"></div>
     <div class="mic-sub" id="saveStatus"></div>
     <p class="thanks">Thanks for trying FormSpeak!</p>
