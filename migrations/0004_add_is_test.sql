@@ -3,7 +3,12 @@
 -- with 'test-' are marked at write time by log.js / serve.py; the UPDATE
 -- backfills any test sessions already logged.
 --
---   npx wrangler d1 execute ramble-form-hackathon --remote --file migrations/0004_add_is_test.sql
+--   npx wrangler d1 execute formspeak --remote --file migrations/0004_add_is_test.sql
+--
+-- (This line used to name ramble-form-hackathon. When the project moved to the
+-- fresh 'formspeak' D1, schema.sql + 0001-0003 were applied but this migration
+-- was missed — so sessions had no is_test column, every /api/log batch insert
+-- threw, and telemetry silently recorded nothing at all. Applied 2026-08-12.)
 --
 -- Re-running errors with "duplicate column name" — expected and harmless.
 ALTER TABLE sessions ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0;

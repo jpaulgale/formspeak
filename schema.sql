@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent   TEXT NOT NULL DEFAULT '',
   event_count  INTEGER NOT NULL DEFAULT 0,
   submitted    INTEGER NOT NULL DEFAULT 0,      -- 1 once a submit_form/submit_saved event lands
+  -- Test/QA sessions (eval-harness runs, ?test=1 demos), excluded from analytics.
+  -- MUST be here, not only in migrations/0004: /api/log inserts this column on
+  -- every batch, so a database built from schema.sql alone drops all telemetry.
+  is_test      INTEGER NOT NULL DEFAULT 0,
   started_at   TEXT NOT NULL DEFAULT (datetime('now')),
   last_seen    TEXT NOT NULL DEFAULT (datetime('now'))
 );
