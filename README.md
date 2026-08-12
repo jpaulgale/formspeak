@@ -193,20 +193,22 @@ has the module map and the data flows.
 
 ## How this was built
 
-Pair-programmed with AI coding agents, start to finish. That's worth stating
-plainly, because it's the honest description and because the interesting part
-isn't the typing.
+I built FormSpeak to test a conviction: an agent belongs inside a conventional
+interface, as a collaborator — not as a replacement for it. The model does the
+one thing it's uniquely good at, which is understanding messy, multilingual,
+out-of-order human speech. Deterministic systems decide what's true. The
+interface keeps every value visible and editable, and the person always has
+the final say.
 
-What I actually did: chose the problem, made the product decisions that make it
-work (the form stays a form; the model may not wait; deterministic systems
-handle truth; remove the SSN field), found the failure modes by replaying real
-sessions, and designed the evaluation that chose the voice backend.
+The product decisions are mine — the form stays a form, the model may not
+wait, addresses come from the city's geocoder or not at all, the SSN field got
+deleted. So are the failure modes: nearly every fix here traces to a replayed
+session of a real stranger using the demo, and the evaluation that chose the
+voice backend is mine too.
 
-The pattern I'd bet on for this whole category of tool: **an agent as a
-collaborator inside a conventional interface, not a replacement for it.** The
-model does what it's uniquely good at — understanding messy, multilingual,
-out-of-order human speech. Deterministic systems handle truth. The interface
-keeps all state visible and editable. The human always has the final say.
+> The code and much of this documentation were generated with Claude Code,
+> working under my direction — and thoroughly tested over the course of the
+> week after the hackathon before anything shipped.
 
 ## Case study
 
