@@ -7,8 +7,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ramble-form-hackathon",
-      "database_id": "46c788e1-0c46-4a54-ac2d-5b344a5304d6"
+      "database_name": "formspeak",
+      "database_id": "c9896f5d-0f5f-46ef-bc60-a6f65af1427b"
     }
   ]
 }
