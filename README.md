@@ -112,21 +112,6 @@ Accessibility is the premise of the project, not a retrofit:
 > Not independently audited against WCAG 2.1 AA / Section 508. The work above is
 > described as built, not as certified.
 
-## Privacy
-
-- **The SSN field was removed entirely.** An early version collected one; a
-  public demo shouldn't invite real Social Security numbers, full stop.
-- **The API key never reaches the browser.** Each session mints a single-use
-  ephemeral token; the browser opens its WebSocket to Google with that.
-- **Per-IP rate limits** stop anyone burning the quota in a loop — and they
-  **degrade open**, because a broken rate limiter should never take down the
-  thing it protects.
-- **Telemetry is fail-safe** in the same spirit: a logging hiccup can never
-  surface as an error inside someone's voice session.
-- Submitted values are still sent to a third-party model provider. Use fake
-  data. Production use would need consent flows, retention controls, and an
-  audit trail.
-
 ## Testing
 
 `tests/` is a voice-backend evaluation harness, not a unit-test suite:
@@ -164,6 +149,7 @@ in red. Nearly every post-launch fix traces back to a replayed session.
 ## Run it
 
 ```bash
+echo "GEMINI_API_KEY=your-key" > .env
 uv run serve.py
 open http://localhost:8000
 ```
@@ -172,9 +158,6 @@ Tap **"Tap to start"**, allow the mic, and start talking.
 
 > Open over `http://localhost` — microphone access is allowed there without
 > HTTPS. Chrome works best for the AudioWorklet PCM pipeline.
-
-`serve.py` looks for `GEMINI_API_KEY` in `$GEMINI_API_KEY`, then `$GOOGLE_API_KEY`,
-then `./.env`.
 
 ### Persistence
 
