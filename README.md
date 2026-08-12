@@ -1,18 +1,28 @@
-# FormSpeak 🎙️
+# <img src="public/favicon.svg" alt="" width="24" height="24"> FormSpeak
 
 **A form that fills itself out as you speak to it.**
 
 A SNAP (food assistance) benefits form you complete by talking — in any order,
-in any language, correcting yourself as you go. Not a chatbot: a real form with
-real fields you can see, tap, and type into. The voice agent helps with the
-form; it never becomes the form.
+in any language, correcting yourself as you go ("no, G-A-L-E — and that
+address is in Brooklyn"). Not a chatbot: a real form with real fields you can
+see, tap, and type into. The voice agent helps fill out the form, but never
+replaces the form or restricts the user from filling it out via text as they
+normally might.
 
-**[Try it live →](https://formspeak.pages.dev)** · **[Case study →](#case-study)**
-· **[Voice-backend evaluation →](tests/REPORT.md)**
+**[Try it live →](https://formspeak.pages.dev)**
 
-Built in a few hours at the NYC State Capacity AI Hackathon (hosted by Civic
-Roundtable and CUNY PIT Lab), then hardened over the following weeks against
-real sessions from strangers on the internet.
+I built this in a few hours at the NYC State Capacity AI Hackathon (hosted by
+Civic Roundtable and CUNY PIT Lab), then spent the week after refining it
+against real user sessions. The dust hasn't yet settled on how these tools
+should fit into typical interfaces — using a chatbot to make small tweaks to
+a document can be an imprecise and frustrating experience. What I like about
+this shape is it allows the user to bounce between dictation, casual
+conversation, and manual editing, and the agent never gets in the way of the
+typical form UI. My approach owes a debt to
+[Doist's Ramble](https://www.todoist.com/ramble) — stream-of-consciousness
+capture as one more way in, not a replacement for typing
+([their write-up](https://cloud.google.com/blog/topics/startups/the-blueprint-doist-stream-of-consciousness-ai-task-list-creation)
+on building it with the same Gemini Live API is worth reading).
 
 ---
 
@@ -27,6 +37,13 @@ piecing together a situation before another back-to-back appointment.
 Voice models now handle casually-delivered information remarkably well. If
 you're impatient, not especially tech-savvy, or more comfortable in another
 language, a conversation should be able to become a completed form.
+
+## AI disclosure
+
+The code and much of the documentation that follows were generated with
+Claude Code, working under my direction. The product decisions are mine, the
+failure modes were found by replaying real sessions, and everything was
+thoroughly tested in the week after the hackathon.
 
 ## The design rule
 
@@ -193,12 +210,10 @@ has the module map and the data flows.
 
 ## How this was built
 
-I built FormSpeak to test a conviction: an agent belongs inside a conventional
-interface, as a collaborator — not as a replacement for it. The model does the
-one thing it's uniquely good at, which is understanding messy, multilingual,
-out-of-order human speech. Deterministic systems decide what's true. The
-interface keeps every value visible and editable, and the person always has
-the final say.
+The model does the one thing it's uniquely good at — understanding messy,
+multilingual, out-of-order human speech. Deterministic systems decide what's
+true. The interface keeps every value visible and editable, and the person
+always has the final say.
 
 The product decisions are mine — the form stays a form, the model may not
 wait, addresses come from the city's geocoder or not at all, the SSN field got
@@ -206,19 +221,11 @@ deleted. So are the failure modes: nearly every fix here traces to a replayed
 session of a real stranger using the demo, and the evaluation that chose the
 voice backend is mine too.
 
-> The code and much of this documentation were generated with Claude Code,
-> working under my direction — and thoroughly tested over the course of the
-> week after the hackathon before anything shipped.
-
-## Case study
-
-A longer writeup of the design decisions, failure modes, and what a small demo
-taught me about how voice agents and traditional interfaces should share a
-screen — including the subtle bug where a user types a correction and the agent,
-unaware, keeps asking for information that's already on screen. (If an AI agent
-and a person share an interface, every change either of them makes has to be
-visible to both — otherwise you don't have collaboration, you have two users
-fighting over one document.)
+The subtlest bug taught the clearest lesson: a user types a correction and the
+agent, unaware, keeps asking for information that's already on screen. If an
+AI agent and a person share an interface, every change either of them makes
+has to be visible to both — otherwise you don't have collaboration, you have
+two users fighting over one document.
 
 ## Credits
 
