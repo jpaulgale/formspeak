@@ -3,6 +3,7 @@
 
 import { state } from "./state.js";
 import { setLevel, renderStatus } from "./status.js";
+import { Resampler } from "./resample.js";
 
 const GATE_HANGOVER_MS = 400; // keep streaming briefly after speech dips
 // --- acoustic echo suppression ---
@@ -19,6 +20,10 @@ const ECHO_MARGIN = 3.0;  // mic RMS must exceed this × the echo level to count
                           // user barging in; anything below is treated as echo → dropped
 const ECHO_SEED_FRAMES = 5; // calibrate the echo level over the first ~5 frames (~320ms)
                           // of each utterance instead of latching the first one — see below
+const ECHO_SEED_GUARD_MS = 80; // don't seed until the speaker has been emitting this long:
+                          // the playback worklet holds a jitter buffer before sound starts,
+                          // so early "echoing" frames are just room ambience — seeding the
+                          // floor from those would let the real bleed through as barge-in
 // While the assistant is speaking, a real barge-in must SUSTAIN for this many frames
 // before we forward it. A single echo/noise spike that sneaks past the floor isn't
 // enough to crush the reply — only ~190ms of continuous above-floor audio (1024-sample
@@ -56,9 +61,16 @@ export async function startMic() {
     // then only learn from sub-threshold frames so a real barge-in spike doesn't drag
     // the estimate up and start gating the user out. ---
     const ec = state.echo;
-    const echoing = now < state.playUntil + ECHO_TAIL_MS;
+    // The speaker is a threat while the playback worklet reports it live
+    // (state.speakerLive — actual emission, jitter buffer and all) or within
+    // the reverb tail after the last emission/arrival estimate.
+    const echoing = state.speakerLive || now < state.playUntil + ECHO_TAIL_MS;
+    // Only learn the bleed from frames captured while sound was provably
+    // leaving the speaker; with the jitter buffer, "echoing" starts before
+    // emission does, and those early frames are just room ambience.
+    const emitting = state.speakerLive && now - state.liveSince > ECHO_SEED_GUARD_MS;
     if (echoing) {
-      if (ec.seedN < ECHO_SEED_FRAMES) {
+      if (ec.seedN < ECHO_SEED_FRAMES && emitting) {
         // Calibration window. The first frames after playback starts are captured while
         // the browser AEC is still converging, so the very first one is a loud, barely
         // cancelled peak. Latching the floor to that single frame (the old behavior)
@@ -152,28 +164,61 @@ export function sendAudioStreamEnd() {
     state.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
 }
 
+let playRs = null; // 24 kHz → device-rate resampler (created with the context)
+
 export async function playAudio(base64) {
-  if (!state.playCtx) {
-    state.playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-    await state.playCtx.audioWorklet.addModule("worklets/playback.js");
-    state.playNode = new AudioWorkletNode(state.playCtx, "play");
-    state.playNode.connect(state.playCtx.destination);
+  if (!state.playInit) {
+    // Single guarded init: chunks arrive back-to-back, and the old create-on-
+    // first-call pattern let chunk 2 race chunk 1's awaits (playCtx already
+    // set, playNode still undefined) and get dropped with a TypeError.
+    state.playInit = (async () => {
+      // Deliberately NOT { sampleRate: 24000 }: on iOS the hardware session
+      // runs at its own rate (48 kHz in play-and-record), and a context at any
+      // other rate goes through the OS resampler — a periodic-crackle-prone
+      // path that iOS updates keep re-breaking. Run at the device rate and
+      // resample ourselves (resample.js) so the OS never has to.
+      state.playCtx = new (window.AudioContext || window.webkitAudioContext)();
+      await state.playCtx.audioWorklet.addModule("worklets/playback.js");
+      state.playNode = new AudioWorkletNode(state.playCtx, "play");
+      // The worklet reports ACTUAL emission ("live"/"idle"/"stopped"), which
+      // is what the mic's echo gate keys on — its jitter buffer makes real
+      // sound lag chunk arrival, so arrival math alone under-covers the tail.
+      state.playNode.port.onmessage = (e) => {
+        if (e.data === "live") {
+          state.speakerLive = true; state.liveSince = performance.now();
+        } else {
+          state.speakerLive = false;
+          // Natural drain ("idle"): emission truly ended NOW — run the echo
+          // tail from here, not from the (earlier) arrival estimate. After a
+          // barge-in ("stopped") gating must end immediately instead, so
+          // leave playUntil where stopPlayback zeroed it.
+          if (e.data === "idle") state.playUntil = Math.max(state.playUntil, performance.now());
+        }
+      };
+      state.playNode.connect(state.playCtx.destination);
+      playRs = new Resampler(24000, state.playCtx.sampleRate);
+    })();
   }
+  await state.playInit;
   if (state.playCtx.state === "suspended") await state.playCtx.resume();
   const bin = atob(base64), bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   const i16 = new Int16Array(bytes.buffer), f32 = new Float32Array(i16.length);
   for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
-  state.playNode.port.postMessage(f32);
+  state.playNode.port.postMessage(playRs.process(f32));
   // Mark how long the speaker will keep emitting so the mic gate can suppress the echo
   // of this playback (see capture handler). Chunks play back-to-back, so extend the tail
-  // from whichever is later — the previous end or now.
+  // from whichever is later — the previous end or now. This arrival-based estimate covers
+  // the FRONT of the utterance (suppression starts before the jitter buffer releases
+  // sound); the worklet's "live"/"idle" reports cover the back.
   const durMs = (f32.length / 24000) * 1000;
   state.playUntil = Math.max(state.playUntil, performance.now()) + durMs;
 }
 
 export function stopPlayback() {
   if (state.playNode) state.playNode.port.postMessage("stop");
+  if (playRs) playRs.reset(); // next utterance must not interpolate from the flushed tail
+  state.speakerLive = false;
   state.playUntil = 0; // speaker silenced (barge-in / interrupt) → stop gating immediately
 }
 

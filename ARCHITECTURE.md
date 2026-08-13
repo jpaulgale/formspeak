@@ -56,7 +56,8 @@ Module responsibilities, one line each:
 | `validators.js` | pure validation/formatting/parsing (phone, DOB, household, income, unit-peeling, transcript denoising) — no DOM, directly unit-tested |
 | `form-state.js` | the deterministic completion gate: `isFilled`, `activeIndex`, the telemetry snapshot |
 | `telemetry.js` | session id (+ `test-` flagging) and the batched, fail-safe event log |
-| `audio.js` | 16 kHz capture with noise gate + acoustic echo suppression, 24 kHz playback; loads the real worklet files in `public/worklets/` |
+| `audio.js` | 16 kHz capture with noise gate + acoustic echo suppression; playback at the device's native rate (24 kHz model audio resampled via `resample.js`, buffered against network jitter by the playback worklet); loads the real worklet files in `public/worklets/` |
+| `resample.js` | chunk-continuous linear resampler (24 kHz → device rate) so the playback context never needs the OS resampler — unit-tested |
 | `status.js` | the mic dock and the listening → thinking → speaking phase machine |
 | `card.js` | the hero question card, segmented progress, value-reveal animation, captions |
 | `form.js` | the editable form (built once, then two-way synced), NYC DS error summary, and the notes that keep the model aware of manual edits |

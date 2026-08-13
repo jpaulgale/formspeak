@@ -11,6 +11,7 @@ export const state = {
   micOn: false,
   capCtx: null, capNode: null, micStream: null,
   playCtx: null, playNode: null,
+  playInit: null,       // one-shot playback-context init promise (chunks await it; no race)
   userBuf: "", asstBuf: "",   // in-flight transcription for the current turn
   lastUser: "", lastAsst: "", // last COMPLETED turn — keeps the caption up between turns
   phase: "listening",   // listening | thinking | speaking — drives the dock status
@@ -38,6 +39,8 @@ export const state = {
     aboveRun: 0,    // consecutive frames clearing the floor (sustained-barge-in counter)
   },
   // --- acoustic echo suppression ---
-  playUntil: 0,       // ms timestamp: assistant audio is playing out the speaker until here
+  playUntil: 0,       // ms timestamp: arrival-based estimate of when speaker emission ends
+  speakerLive: false, // playback worklet's own report: sound is leaving the speaker NOW
+  liveSince: 0,       // ms timestamp: when speakerLive last flipped on (seed guard)
   echo: { level: 0, seedMin: 0, seedN: 0 }, // learned RMS of the speaker→mic bleed (+ seed calibration)
 };
